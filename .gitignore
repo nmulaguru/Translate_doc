@@ -1,0 +1,29 @@
+# Secrets — never push
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Runtime state
+hermes_state.db
+*.db-wal
+*.db-shm
+
+# Generated artifacts
+artifacts/
+
+# Claude internal
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

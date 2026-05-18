@@ -1,0 +1,48 @@
+# Local stack for the Hermes framework.
+#
+#   docker compose up --build
+#
+# Exposed ports:
+#   :8080   agent API + /ui SSE viewer
+#   :7700   FastMCP server
+#
+# The Assessment/ folder (Sample_FastMCP.py + fake_database.db) is mounted into
+# both containers — no rebuild needed when the data or tool definitions change.
+
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: hermes-mcp
+    environment:
+      - MCP_PORT=7700
+      - MCP_HOST=0.0.0.0
+      - ASSESSMENT_DIR=/srv/Assessment
+    volumes:
+      - ../Assessment:/srv/Assessment:ro
+    ports:
+      - "7700:7700"
+
+  agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: hermes-api
+    env_file: .env
+    environment:
+      - MCP_URL=http://mcp-server:7700/mcp/
+      - STATE_DB_PATH=/data/hermes_state.db
+      - ASSESSMENT_DIR=/srv/Assessment
+    volumes:
+      - hermes-state:/data
+      - ./artifacts:/srv/artifacts
+      - ../Assessment:/srv/Assessment:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      mcp-server:
+        condition: service_started
+
+volumes:
+  hermes-state: {}

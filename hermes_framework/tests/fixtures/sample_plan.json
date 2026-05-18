@@ -1,0 +1,38 @@
+{
+  "goal": "Translate all financial documents in container_001 to German",
+  "tasks": [
+    {
+      "id": "T1",
+      "kind": "CODE_TRANSFORM",
+      "title": "List financial doc IDs",
+      "depends_on": [],
+      "spec": {
+        "code_intent": "Call get_active_documents_metadata; filter category=='financial' and status=='ACTIVE'; return doc_ids and count.",
+        "expected_output_schema": {"doc_ids": "list[str]", "count": "int"}
+      },
+      "timeout_s": 60,
+      "max_retries": 2
+    },
+    {
+      "id": "T2",
+      "kind": "CODE_TRANSFORM",
+      "title": "Bulk-translate to German",
+      "depends_on": ["T1"],
+      "spec": {
+        "code_intent": "Iterate ${T1.doc_ids} in chunks of 200. Call translate_document_preserving_structure(document_id=chunk, destinationLanguageThreeLetterCode='deu', container_id=...). Emit progress markers per chunk.",
+        "expected_output_schema": {"successful": "int", "failed": "int", "failed_documents": "list[str]"}
+      },
+      "timeout_s": 600,
+      "max_retries": 1
+    },
+    {
+      "id": "T3",
+      "kind": "SYNTHESIZE",
+      "title": "Report results to user",
+      "depends_on": ["T2"],
+      "spec": {"instructions": "Report successful/failed counts.", "inputs_from": ["T2"]},
+      "timeout_s": 60,
+      "max_retries": 1
+    }
+  ]
+}

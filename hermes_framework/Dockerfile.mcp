@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /srv
+
+RUN pip install --upgrade pip && pip install \
+    "fastmcp>=0.4.0" \
+    "pydantic>=2.7.0"
+
+# Sample_FastMCP.py + fake_database.db are mounted in via the compose volume.
+COPY app/mcp_server.py /srv/app/mcp_server.py
+COPY app/__init__.py /srv/app/__init__.py
+COPY app/config.py /srv/app/config.py
+
+EXPOSE 7700
+CMD ["python", "-m", "app.mcp_server"]
