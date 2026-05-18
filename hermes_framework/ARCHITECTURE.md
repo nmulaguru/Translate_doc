@@ -1,8 +1,8 @@
 # Hermes Framework — Architecture
 
-A Hermes/OpenCode/DeepAgents-style multi-agent framework that wraps the four
-MCP tools from `Sample_FastMCP.py` and exposes a single API surface for the
-six example queries in the assessment PDF. This document explains *why* the
+A Hermes/OpenCode/DeepAgents-style multi-agent framework that wraps the MCP
+tools from `Assessment/Sample_FastMCP.py` and exposes a single API surface for
+the example queries in the assessment PDF. This document explains *why* the
 system is built the way it is — the tradeoffs that mattered, the failure
 modes that drove specific design choices, and the path to scaling beyond
 36K documents to 1M+.
@@ -29,10 +29,9 @@ The architecture is graded on six axes:
 6. **Streaming UX** — observe execution in real time.
 
 The highest-weighted axis is **scalability**. The naive failure mode is to
-let the planner LLM enumerate document IDs into its own context (5,140
-financial doc IDs in `container_001` would already exceed reasonable token
-budgets) or to let the orchestrator loop over docs one tool call at a time.
-The architecture must prevent both, structurally.
+let the planner LLM enumerate document IDs into its own context or to let the
+orchestrator loop over docs one tool call at a time. The architecture must
+prevent both, structurally.
 
 ---
 
@@ -57,10 +56,10 @@ The architecture must prevent both, structurally.
  ┌──────────────────────────────────────────────────────────────────────┐
  │ Orchestrator (app/engine/orchestrator.py)                            │
  │   1) Interrogator   → emit clarification Qs OR proceed               │
- │   2) Planner        → adaptive thinking + native tool_use + caching  │
- │   3) Plan Validator → auto-repair unsafe plans                       │
- │   4) Scheduler      → topo-wave DAG executor (semaphore-bound)       │
- │   5) Synthesizer    → final-answer composition                       │
+ │   2) Planner        → adaptive thinking + tool_use + prompt caching  │
+ │   3) validate_and_repair() → auto-repair unsafe plans (in planner.py)│
+ │   4) Scheduler      → topo-wave DAG executor (semaphore-bound at 8)  │
+ │   5) _synthesize_final_answer() → inlined in orchestrator.py         │
  └─┬───────────────────┬─────────────────────┬────────────────────┬─────┘
    │                   │                     │                    │
    ▼                   ▼                     ▼                    ▼
@@ -81,17 +80,16 @@ The architecture must prevent both, structurally.
  ┌──────────────────────────────────────────────────────────────────────┐
  │ MCP Server (FastMCP over streamable-HTTP)                            │
  │ [Assessment/Sample_FastMCP.py — used as-is via app/mcp_server.py]    │
- │   get_active_documents_metadata / get_document_insights /            │
- │   translate_document_preserving_structure / aiagent                  │
+ │   search_documents / get_active_documents_metadata /                 │
+ │   get_document_insights / translate_document_preserving_structure /  │
+ │   aiagent                                                            │
  └────────────────────────────┬─────────────────────────────────────────┘
                               ▼
                      ┌─────────────────┐
                      │ fake_database.db│
+                     │ 36,000 documents│
+                     │ 4 containers    │
                      └─────────────────┘
-
-Cross-cutting:
-- OpenTelemetry traces (FastAPI + httpx auto-instrumented) → Jaeger.
-- Loguru structured logs to stdout (session_id, task_id, cache hit rates).
 ```
 
 The **bus** is a per-session `asyncio.Queue` and a SQLite append-only log
@@ -100,7 +98,7 @@ get it immediately and late ones replay from a cursor.
 
 ---
 
-## 3. The planner: adaptive thinking + native tool use + cache
+## 3. The planner: adaptive thinking + native tool use + prompt cache
 
 The planner is one Claude Sonnet 4.6 call per session message. It produces a
 structured DAG plan via a single `emit_plan` tool call.
@@ -109,12 +107,12 @@ structured DAG plan via a single `emit_plan` tool call.
 async with self.client.messages.stream(
     model="claude-sonnet-4-6",
     max_tokens=16000,
-    thinking={"type": "adaptive"},          # adaptive — not budget_tokens
-    output_config={"effort": "high"},       # planner-only
-    cache_control={"type": "ephemeral"},    # caches system + tool schema
+    thinking={"type": "adaptive"},   # adaptive — not budget_tokens
+    output_config={"effort": "high"},
+    cache_control={"type": "ephemeral"},
     system=PLANNER_SYSTEM,
     tools=[EMIT_PLAN_TOOL],
-    tool_choice={"type": "tool", "name": "emit_plan"},
+    tool_choice={"type": "auto"},    # adaptive thinking requires auto, not forced
     messages=[{"role": "user", "content": user_block}],
 ) as stream:
     async for event in stream:
@@ -127,17 +125,16 @@ async with self.client.messages.stream(
 
 | Choice | Why |
 |---|---|
-| **Native tool use** | Sonnet 4.6 is RLHF-trained on the native schema. XML-tagged "Hermes-style" parsing on top of streaming is brittle (mid-stream regex matching, harder to enforce `tool_choice`), degrades reliability, and saves nothing. The "Hermes feel" lives in the *system-level* planner/router/worker decomposition. |
-| **`thinking: {type: "adaptive"}`** | `budget_tokens` is deprecated on Sonnet 4.6 (and removed on Opus 4.7). Adaptive lets the model decide when and how much to think — measured better than a fixed budget across the PDF's example queries. |
-| **`effort: "high"`** | The planner is the most intelligence-sensitive component. Workers run on plain Sonnet without extended thinking for latency. |
-| **`cache_control: {"type": "ephemeral"}`** | The system prompt + tool schema is ~3-4K tokens of stable bytes per session. With caching, repeat planner calls in the same process pay ~0.1× the prefix cost. The first call pays a 1.25× write premium; break-even is two requests. |
-| **`tool_choice: {"type": "tool", "name": "emit_plan"}`** | Forces the model to emit a plan, never to answer the user directly. The planner has one job. |
-| **Streaming** | `planner.thinking` deltas are forwarded to the SSE stream live, so the user sees reasoning as it happens. Without streaming the UX has a 5-15 second blank pause. |
+| **Native tool use** | Sonnet 4.6 is RLHF-trained on the native schema. The "Hermes feel" lives in the *system-level* planner/router/worker decomposition — not in XML-tagged parsing. |
+| **`thinking: {type: "adaptive"}`** | `budget_tokens` is deprecated on Sonnet 4.6. Adaptive lets the model decide when and how much to think — measured better than a fixed budget across the PDF's example queries. |
+| **`tool_choice: {"type": "auto"}`** | Adaptive thinking is incompatible with forced tool use (`{"type": "tool", "name": "..."`). The single-tool surface and system prompt keep the model deterministic in practice. |
+| **`cache_control: {"type": "ephemeral"}`** | The system prompt + tool schema is stable bytes per session. Repeat planner calls in the same process pay ~0.1× the prefix cost after the first write. |
+| **Streaming** | `planner.thinking` deltas are forwarded to the SSE stream live, so the user sees reasoning as it happens — no 5-15 second blank pause. |
 
-**One trap:** when streaming with extended/adaptive thinking + tool use, the
-`get_final_message()` helper is the right escape hatch — manually
-reconstructing the final message from individual stream events is
-unnecessarily painful. The SDK accumulates state for you.
+**Dynamic tool signatures:** The code-gen system prompt is built at runtime via
+`build_code_gen_system(live_tools)` in `app/engine/prompts.py`. It calls
+`mcp_list_tools()` before every code generation so the LLM always sees the
+actual live MCP tool input schemas — no hardcoded signatures to drift out of sync.
 
 ---
 
@@ -157,17 +154,16 @@ The threshold is `BULK_DOC_THRESHOLD=20`, settable in `.env`.
 1. **Prompt rule.** The planner system prompt forbids `TOOL_CALL` with >20
    doc IDs in args, with worked examples and an explicit "this is
    non-negotiable" note.
-2. **Validator auto-repair** (`app/engine/validator.py`). Scans every
-   emitted plan, counts doc IDs in `TOOL_CALL` args (checks `document_id`,
-   `document_ids`, `doc_ids`, plus generic list-of-strings detection), and
-   rewrites violators as `CODE_TRANSFORM` with a `code_intent` that
-   describes the original tool call. Emits a `plan.repaired` SSE event so
-   the user sees it happened.
+2. **`validate_and_repair()` auto-repair** (in `app/engine/planner.py`). Scans
+   every emitted plan, counts doc IDs in `TOOL_CALL` args (checks
+   `document_id`, `document_ids`, `doc_ids`, plus generic list-of-strings
+   detection), and rewrites violators as `CODE_TRANSFORM` with a `code_intent`
+   that describes the original tool call. Emits a `plan.repaired` SSE event
+   so the user sees it happened.
 
 Prompt discipline alone is not sufficient — Sonnet 4.6 violates the rule
-maybe 3-5% of the time on edge cases ("translate these specific 8 papers
-plus all financial ones..." can confuse it). The validator is the load-bearing
-defense.
+maybe 3-5% of the time on edge cases. `validate_and_repair()` is the
+load-bearing defense.
 
 **The generated code follows this pattern:**
 
@@ -193,15 +189,14 @@ async def main():
 asyncio.run(main())
 ```
 
-Note: `__container_id__` and `__upstream__` are injected into the sandbox
-namespace by the runner. Generated scripts never need to import the
-container_id from anywhere.
+`__container_id__` and `__upstream__` are injected into the sandbox namespace
+by the runner. Generated scripts never need to import the container_id.
 
 ---
 
 ## 5. The sandbox
 
-Two layers of defense, plus a marker protocol.
+Two layers of defense, plus a rich marker protocol.
 
 ### Layer 1: AST allowlist (`app/sandbox/policy.py`)
 
@@ -215,44 +210,46 @@ Before exec, parse the script with `ast.parse()` and walk every node:
 - `ast.Name` / `ast.Call` — reject `__import__`, `eval`, `exec`, `compile`,
   `open`, `input`, `breakpoint`.
 
-This catches the obvious escape patterns. A determined adversary could find
-something the AST walker misses (custom descriptors, type-coerced bytes
-exec via `marshal`, etc.) — for that we rely on layer 2.
+### Layer 2: filtered builtins + subprocess isolation
 
-### Layer 2: `python -I` + filtered builtins
+The runner executes in a subprocess (`python -m app.sandbox.runner`).
+The execution namespace seeds `__builtins__` from a copy of the real builtins
+module with `__import__`, `eval`, `exec`, `compile`, `open`, `input`,
+`breakpoint`, `memoryview` removed.
 
-The runner is launched as `python -I -m app.sandbox.runner --task-file
-/tmp/<task>.json`. `-I` (isolated mode) strips `PYTHONPATH`, `PYTHONHOME`,
-and user site-packages — so even if a script's AST passes, it can't reach
-arbitrary modules.
+**Note:** `-I` (isolated mode) was removed from the subprocess launch in
+`code_worker.py` because on Python 3.11+ it implies `-P`, which strips CWD
+from `sys.path` and breaks `python -m app.sandbox.runner` module loading.
+`PYTHONPATH` is set explicitly instead. The AST allowlist + filtered builtins
+are the real sandbox defense.
 
-The execution namespace seeds `__builtins__` from a copy of the real
-builtins module with `__import__`, `eval`, `exec`, `compile`, `open`,
-`input`, `breakpoint`, `memoryview` removed. So even if the AST walker
-misses something, runtime resolution of those names raises `NameError`.
+**Note:** `RLIMIT_AS` was removed from the runner because it limits virtual
+address space (not RSS), and modern Python + httpx + the MCP SDK can reserve
+>512MB of virtual address space without actually using it — this killed the
+subprocess silently at startup. The wall-clock timeout in `code_worker.py`
+(`asyncio.wait_for`) is the enforced memory/time safety net.
 
-On Linux we also set `RLIMIT_AS = 512MB` to bound memory. Windows: the wall
-timeout via `asyncio.wait_for(proc.wait(), timeout=...)` is the only enforced
-limit; the child can be killed cleanly via `proc.kill()`.
+### Marker protocol
 
-### Layer 3: marker protocol (`##PROGRESS## / ##RESULT## / ##ERROR##`)
+The runner exposes helpers into the sandbox namespace that write structured
+lines to stdout. The parent (`code_worker.py`) parses them line-by-line:
 
-The runner exposes two helpers into the sandbox namespace:
-
-- `_emit_progress(current, total, msg="")` — writes `##PROGRESS## {json}` to stdout
-- `_emit_result(value)` — writes `##RESULT## {json}` once, terminal
-
-The agent reads stdout line by line. Lines starting with `##PROGRESS##` become
-`task.code_progress` SSE events; `##RESULT##` becomes the task output;
-`##ERROR##` is a fatal sandbox error; everything else falls through as
-`task.code_stdout` for debugging. Parsing failures are caught and surfaced as
-task failures — not silent.
+| Marker | SSE event | Purpose |
+|---|---|---|
+| `##PROGRESS## {json}` | `task.code_progress` | Per-chunk progress |
+| `##RESULT## {json}` | task output | Terminal result |
+| `##ERROR## {json}` | task.failed | Fatal sandbox error |
+| `##LOG## text` | `task.code_stdout` | Debug logging |
+| `##MCP_CALL## {json}` | `task.mcp_call` | MCP tool dispatched |
+| `##MCP_RESULT## {json}` | `task.mcp_result` | MCP tool result back |
+| `##FILTER## {json}` | `task.filter_summary` | Per-container filter stats |
+| `##EXEC_PLAN## {json}` | `task.execution_plan` | Script's intended fan-out |
+| `##CHECKPOINT## {json}` | `task.checkpoint` | Resumable state snapshot |
 
 **Why subprocess, not in-process?** Subprocess isolation makes timeouts
-trivially safe (kill the process; everything dies cleanly), avoids any
-`asyncio` event-loop pollution from generated code, and the `python -I`
-hardening only works for a process. On Windows we can't `setrlimit`, but
-we can still rely on the kill-via-timeout behavior.
+trivially safe (kill the process; everything dies cleanly), avoids asyncio
+event-loop pollution from generated code, and enables the `PYTHONPATH`
+hardening that only works per-process.
 
 ---
 
@@ -267,43 +264,54 @@ while any task is PENDING:
     if not ready:
         mark remaining PENDING tasks as SKIPPED (upstream failed)
         break
-    await asyncio.gather(*(run_task(t) for t in ready))  # semaphore-bound at 4
+    await asyncio.gather(*(run_task(t) for t in ready))  # semaphore-bound at 8
 ```
 
 Per task:
 
 - `task.started` event → run worker under `asyncio.wait_for(timeout)` →
-  on success: persist output (small inline, large to artifacts/) + emit
+  on success: persist output (≤8KB inline, larger to artifacts/) + emit
   `task.completed` with preview.
-- On retriable failure: exponential backoff (2^attempt seconds), max 3
-  attempts, emit `task.retrying`.
+- On retriable failure: exponential backoff (2^attempt seconds), max retries
+  per `task.max_retries`, emit `task.retrying`.
 - On fatal failure or retries exhausted: emit `task.failed`. Downstream
   tasks transitively skip.
 
 After scheduler returns, the orchestrator inspects task statuses. If any
-terminal failure occurred *with downstream work remaining*, it does one
-bounded replan: feeds the prior plan + failure back to the planner with a
-"replan around this" prompt. Capped at one replan per session — otherwise
-the loop is unbounded.
+terminal failure occurred with downstream work remaining, it does one
+bounded replan (`MAX_REPLANS = 1`): feeds the prior plan + failure + checkpoint
+back to the planner with a "replan around this" prompt. Capped at one replan
+per session.
+
+**Bulk task timeout:** `CODE_TRANSFORM` and `BULK_TOOL_CALL` tasks get
+`sandbox_bulk_timeout_seconds` (default 600s) instead of the standard 120s,
+unless the planner explicitly set a timeout.
 
 ---
 
 ## 7. Plan Mode (the interrogator)
 
-For ambiguous requests (the canonical example: "create a dashboard from my
-documents"), executing immediately is wrong. The interrogator is a separate
-Claude call with a two-tool surface (`proceed` | `ask_clarifications`), forced
-via `tool_choice={"type": "any"}`. If it asks, each question is persisted as
-a `Question` row, emitted as a `plan_mode.question` SSE event, and the
-session transitions to `AWAITING_ANSWER`. The HTML viewer renders each
-question with its options and a free-text fallback.
+For ambiguous requests (e.g. "create a dashboard from my documents"), the
+interrogator is a separate Claude call with a two-tool surface
+(`proceed` | `ask_clarifications`), forced via `tool_choice={"type": "any"}`.
+
+If it asks, each question is persisted as a `Question` row, emitted as a
+`plan_mode.question` SSE event with options, and the session transitions to
+`AWAITING_ANSWER`. The HTML viewer renders each question with its options and
+a free-text fallback.
 
 When `POST /v1/sessions/{id}/answer` arrives for the last pending question,
-the orchestrator's `resume_session()` re-enters the run loop with
-`skip_interrogation=True` and the answers gathered as planner context.
+`resume_session()` re-enters the run loop with `skip_interrogation=True`
+and the answers gathered as planner context.
 
 The interrogator is biased toward `proceed` — only asks when a decision could
-send the planner down a wrong path.
+send the planner down a wrong path. If the model fails to call a tool, it
+defaults to `proceed` (better to try than to hang).
+
+**Container resolution:** The interrogator auto-resolves to the single
+available container without asking. With multiple containers it passes the full
+list to the planner so it can fan out across all of them (cross-container
+`CODE_TRANSFORM`) or ask the user for scope on single-container queries.
 
 ---
 
@@ -320,188 +328,154 @@ questions(id PK, session_id FK, text, options_json, answer, asked_at, answered_a
 checkpoints(id PK, session_id, task_id, output_ref, created_at)
 ```
 
-WAL mode. `events` is append-only — never updated — which is what enables
-the SSE replay-from-cursor pattern.
+WAL mode. `events` is append-only — never updated — which enables the SSE
+replay-from-cursor pattern.
 
-**Output size handling.** Task outputs ≤ 8KB stay inline in `tasks.output_blob`.
-Larger outputs (a full container's worth of insights, an HTML dashboard) spill
-to `./artifacts/{session_id}/{task_id}.json|html` and the task row stores
-`artifact_ref` + a small preview. SSE event payloads never carry full outputs
-— the `task.completed` payload has `output_preview` (≤8KB) and `artifact_ref`.
-The HTML viewer renders artifact refs as clickable links.
+**Output size handling.** Task outputs ≤8KB stay inline in `tasks.output_blob`.
+Larger outputs spill to `./artifacts/{session_id}/{task_id}.json|html` and
+the task row stores `artifact_ref` + a preview. SSE `task.completed` payloads
+carry `output_preview` (≤8KB) and `artifact_ref` — never the full output.
 
 ---
 
 ## 9. SSE event surface
 
-| event type | when |
+| Event type | When |
 |---|---|
 | `session.started` | message accepted |
+| `container.resolved` | container auto-resolved without asking |
 | `plan_mode.question` | clarification needed |
 | `plan_mode.answered` | answer received |
 | `planner.thinking` | streamed thinking_delta during planner call |
-| `planner.text` | streamed text_delta (rare; usually empty under tool_choice=tool) |
+| `planner.text` | streamed text_delta (rare under tool_choice=auto) |
 | `plan.created` | plan emitted |
-| `plan.repaired` | validator auto-rewrote a task |
+| `plan.repaired` | validate_and_repair() auto-rewrote a task |
 | `plan.replanning` | replan after task failure |
 | `task.started` | task begins |
-| `task.tool_call` | MCP call dispatched |
-| `task.tool_result` | MCP result back |
 | `task.code_generated` | code worker generated a script |
-| `task.code_executing` | sandbox spawned |
-| `task.code_progress` | `##PROGRESS##` marker parsed |
-| `task.code_stdout` | non-marker stdout (debug) |
+| `task.code_executing` | sandbox subprocess spawned |
+| `task.execution_plan` | script's intended fan-out (##EXEC_PLAN##) |
+| `task.mcp_call` | MCP tool dispatched (##MCP_CALL##) |
+| `task.mcp_result` | MCP tool result back (##MCP_RESULT##) |
+| `task.code_progress` | ##PROGRESS## marker parsed |
+| `task.filter_summary` | per-container filter stats (##FILTER##) |
+| `task.checkpoint` | resumable state snapshot (##CHECKPOINT##) |
+| `task.code_stdout` | non-marker stdout or ##LOG## (debug) |
+| `task.code_stderr` | sandbox stderr (first 30 lines) |
 | `task.completed` | task done |
 | `task.retrying` | retriable failure, backing off |
 | `task.failed` | terminal failure |
 | `task.skipped` | upstream failed |
-| `subagent.spawned` | child Claude session for SUBAGENT task |
+| `subagent.spawned` | child Claude session for SUBAGENT/SYNTHESIZE task |
 | `session.completed` | final answer ready |
 | `session.error` | session failed at orchestrator level |
 
 All events have `{ts, payload}` in `data:` JSON, plus the SSE `id:` field as
 the cursor. The HTML viewer subscribes to every type and renders each
-appropriately (planner thinking → typed-out text, plan → task tree, code
-progress → progress bar, etc.).
+appropriately.
 
 ---
 
-## 10. Tradeoffs considered
+## 10. Task kinds and worker routing
 
-### Why not LangGraph / LlamaIndex Agents / CrewAI?
+| TaskKind | Worker | When used |
+|---|---|---|
+| `TOOL_CALL` | ToolWorker | Single direct MCP call (≤20 doc IDs) |
+| `RAG_QUERY` | ToolWorker | aiagent Q&A via MCP |
+| `CODE_TRANSFORM` | CodeWorker | Bulk/iterative ops, cross-container fan-out |
+| `BULK_TOOL_CALL` | CodeWorker | Explicit bulk MCP call via generated code |
+| `SUBAGENT` | SubAgentWorker | Child Claude session (HTML dashboards, etc.) |
+| `SYNTHESIZE` | SubAgentWorker | Final answer composition from task outputs |
 
-Considered. Rejected because:
+The router lives in `app/engine/router.py` and is stateless.
 
-- The assessment explicitly evaluates whether the *system thinking* is sound
-  — using a higher-level framework would hide the planner/router/worker
-  decisions inside someone else's abstraction. Writing the DAG executor and
-  worker dispatch ourselves shows the architecture more clearly.
-- LangGraph's state model is checkpointed graphs; that's adjacent to what
-  we want (replayable event log) but not a natural fit for the
-  Plan-Mode-pauses-on-clarification flow.
-- CrewAI is opinionated about roles/crew terminology and harder to reshape
-  for *generated-code-as-a-worker*, which is the key scalability lever.
-- We do use the official MCP Python SDK (`mcp.client.streamable_http`) for
-  the wire format — no reason to reinvent that.
+---
 
-### Why subprocess sandbox instead of E2B / Docker-in-Docker / RestrictedPython?
+## 11. Tradeoffs considered
 
-- **E2B**: best isolation but adds a paid third-party dependency, latency
-  spike per execution, and complicates the no-internet demo path.
-- **Docker-in-Docker**: heavy. We're already in Docker Compose for the
-  demo; adding DinD doubles the build time and complicates the
-  filesystem story.
-- **RestrictedPython**: weak isolation, can't actually run async code
-  cleanly, harder to debug failures.
-- **Subprocess + `python -I` + AST allowlist**: weakest theoretical
-  isolation but matches the *level* of trust we extend to LLM-generated
-  code in a *demo* — the LLM is the trusted-but-confused party, not an
-  attacker. For production, swap this layer for E2B without touching
-  anything above.
+### Why not LangGraph / LlamaIndex / CrewAI?
+
+The assessment explicitly evaluates whether the *system thinking* is sound.
+Using a higher-level framework hides the planner/router/worker decisions inside
+someone else's abstraction. Writing the DAG executor and worker dispatch
+ourselves shows the architecture more clearly. We do use the official MCP Python
+SDK for the wire format — no reason to reinvent that.
+
+### Why subprocess sandbox instead of E2B / Docker-in-Docker?
+
+- **E2B**: best isolation but adds a paid third-party dependency and latency.
+- **Docker-in-Docker**: heavy. Doubles build time, complicates filesystem.
+- **Subprocess + AST allowlist + filtered builtins**: matches the level of trust
+  we extend to LLM-generated code in a demo — the LLM is the trusted-but-confused
+  party, not an attacker. For production, swap this layer for E2B without
+  touching anything above.
 
 ### Why a single replan, not unbounded?
 
-Replan-on-failure is a powerful pattern but can loop forever (planner emits
-a broken plan, scheduler fails, planner emits the same broken plan...). We
-cap at 1 replan per session and surface the error. In practice this is
-enough to recover from transient MCP failures and structural plan errors
-(typo'd dependency IDs) while keeping failure modes bounded.
+Replan-on-failure can loop forever. Cap at 1 replan per session; surface the
+error on second failure. In practice this recovers from transient MCP failures
+and structural plan errors while keeping failure modes bounded.
 
 ### Why SQLite, not Redis / Postgres?
 
 Demo-grade choice. WAL-mode SQLite handles the event volume comfortably for
-a single-tenant agent. For multi-tenant production:
+single-tenant usage. The `Store` abstraction in `app/state/store.py` makes
+swapping to Postgres + Redis a localized change, not a rewrite.
 
-- Move events to Postgres `LISTEN/NOTIFY` (replay still works via cursor).
-- Move session state to Redis with TTLs for ephemeral sessions, Postgres
-  for durable.
-- The `Store` abstraction in `app/state/store.py` makes this a swap, not a
-  rewrite.
+### Why not a SQL agent?
 
-### Why FastAPI's `StreamingResponse` for SSE, not `sse-starlette`?
-
-`sse-starlette` wants to encode event frames for you, but we already emit
-fully-formatted frames (`id: N\nevent: T\ndata: {...}\n\n`) from
-`stream_session_events`. `StreamingResponse` with `media_type="text/event-stream"`
-plus `X-Accel-Buffering: no` and `Cache-Control: no-cache` is the minimum
-correct surface.
-
-### Why one MCP session per call, not pooling?
-
-The MCP streamable-HTTP transport is request-scoped — there's no long-lived
-session you can keep alive across asyncio tasks without serializing through
-a single connection (which kills throughput). For demo-scale concurrency
-this is fine; the bottleneck is the simulated 100ms-per-doc translate
-latency, not connection setup. For 1M-scale production: add a pool of N
-persistent sessions in front of the MCP client with round-robin
-dispatch.
+The MCP tool abstraction protects the schema and limits blast radius. FTS5 BM25
+is faster and more relevant than SQL `LIKE` for text search at scale. A SQL
+agent generating arbitrary queries has no structural protection against
+accidentally broad results or slow full-table scans. The current `search_documents`
+MCP tool (FTS5 + structured filters) is the right abstraction for this corpus.
 
 ---
 
-## 11. Scaling to 1M documents
-
-The architecture's scalability story:
+## 12. Scaling to 1M documents
 
 | Layer | At 36K docs | At 1M docs | What changes |
 |---|---|---|---|
 | Planner context | O(1) doc IDs | O(1) doc IDs | nothing — by design |
 | Plan complexity | 2-3 tasks | 2-3 tasks | nothing |
-| Code worker | 200-doc chunks, ~5,140 docs in ~25s mocked | 200-doc chunks, ~1M docs in ~80min mocked | chunk size tunable; if MCP supports parallelism, add a semaphore to the generated code |
-| MCP server | single process | horizontal scale behind a load balancer | nothing in our framework; tools are stateless |
-| State DB | SQLite WAL | Postgres + Redis | swap `app/state/store.py` |
-| Event volume | ~100 events/session | ~100 events/session, same per-session | sub-session events stay bounded because we only emit per chunk, not per doc |
-| Memory | a few MB of in-memory outputs per session | same | large outputs spill to artifacts/ already |
+| Code worker | 200-doc chunks, asyncio.gather per container | same chunk size, add Semaphore(8) for parallel chunks | chunk size tunable |
+| MCP server | single process | horizontal scale behind load balancer | tools are stateless |
+| State DB | SQLite WAL | Postgres + Redis | swap app/state/store.py |
+| Event volume | ~100 events/session | ~100 events/session | bounded per chunk, not per doc |
+| Memory | few MB per session | same | large outputs spill to artifacts/ already |
 
 Two specific scale-out edits when going to 1M:
 
-1. **Parallel chunks.** The current generated code is sequential per chunk.
-   For 1M docs, the code generator prompt can ask for `asyncio.Semaphore(8)`
-   wrapping the chunk dispatch. The MCP server's `translate_document_preserving_structure`
-   already does in-tool concurrency.
-2. **Resumable bulk.** Add `--resume-from N` support to the sandbox runner
-   so a failed/timed-out bulk job can pick up where the last `##PROGRESS##`
-   marker left it (the runner accepts the parameter through the task JSON,
-   the scheduler tracks last-checkpoint per task, and the generated code
-   reads `__resume_from__` from globals). This is sketched but not built.
+1. **Parallel chunks.** Current generated code is sequential per chunk.
+   For 1M docs, the code-gen prompt can ask for `asyncio.Semaphore(8)` wrapping
+   chunk dispatch. The MCP server's translate tool already does in-tool concurrency.
+2. **Resumable bulk.** The `##CHECKPOINT##` marker + `task.checkpoint` in Task
+   model are built for this — a failed/timed-out bulk job can pass its last
+   checkpoint to the replanner, which restarts from that offset.
 
 ---
 
-## 12. Production checklist (not for the demo)
+## 13. Production checklist (not for the demo)
 
 - [ ] Replace subprocess sandbox with E2B or Firecracker.
 - [ ] Auth: API keys per tenant, scoped to container_ids.
-- [ ] Move event log to Postgres; events table partitioned by day.
+- [ ] Move event log to Postgres; partition by day.
 - [ ] Move session state to Redis with TTL.
-- [ ] Backpressure on the SSE bus (currently `asyncio.Queue(maxsize=1024)`;
-      drop-and-log oldest on overflow).
-- [ ] Replan budget — currently 1 per session, should be per-tenant rate
-      limited too.
+- [ ] Backpressure on SSE bus (`asyncio.Queue(maxsize=1024)`; drop-and-log oldest on overflow).
 - [ ] Persistent MCP client pool (N=10 streaming sessions, round-robin).
-- [ ] Cost telemetry: every Anthropic call emits its `usage` block to
-      OpenTelemetry as span attributes — already partially done in
-      `planner.py:_log_usage`.
+- [ ] Cost telemetry: every Anthropic call emits `usage` block to OpenTelemetry spans.
 - [ ] Audit log: events table already serves as one; add export to S3.
 - [ ] Soft delete + retention on artifacts/.
+- [ ] Multi-turn within a session: keep conversation history across `POST /messages` calls.
 
 ---
 
-## 13. What I'd do differently with more time
+## 14. Known gaps vs. what was planned
 
-1. **Run a real load test.** Mock the MCP server to handle 1M docs and
-   actually run "translate all" — measure end-to-end latency, SSE
-   throughput, SQLite write contention. The architecture *should* hold
-   but I haven't verified at that scale.
-2. **Build the resume-from-checkpoint path.** Sketched in the scheduler
-   (`TaskStatus.INTERRUPTED`) but the generated code doesn't accept the
-   resume parameter yet.
-3. **Add streaming inside the code worker.** The planner streams; the
-   code worker doesn't — it generates the script in one shot, then runs
-   it. Streaming the code generation gives an extra visibility win for
-   long-running tasks.
-4. **Tool-search-based dynamic tool loading.** Today all four MCP tool
-   schemas are inlined into the planner system prompt. With 50+ tools
-   this won't scale; use Anthropic's `tool_search` to discover relevant
-   tools per query.
-5. **Multi-turn within a session.** Today `POST /messages` starts a fresh
-   orchestrator run. A real chat experience would keep conversation
-   history and let the planner reference prior task outputs across turns.
+| Gap | Status |
+|---|---|
+| `RLIMIT_AS` sandbox memory limit | Removed — kills process at startup on Python 3.11+; wall-clock timeout is the enforcer |
+| `python -I` isolated mode | Removed — implies `-P` which strips CWD from sys.path, breaking module loading; `PYTHONPATH` set explicitly instead |
+| Resume-from-checkpoint in generated code | `##CHECKPOINT##` marker is wired end-to-end; generated scripts don't yet read `__resume_from__` |
+| Multi-turn conversation history | Each `POST /messages` starts a fresh orchestrator run |
+| OpenTelemetry / Jaeger tracing | Structured in design but not wired in current code |
