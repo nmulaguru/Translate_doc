@@ -22,58 +22,98 @@ session left in `EXECUTING` from its last checkpoint — generated code reads
 `__resume_from__` and skips already-processed pages.
 
 Full design rationale is in [ARCHITECTURE.md](./ARCHITECTURE.md).
+The browser UI is branded **Argos** (the many-eyed multi-agent watcher);
+internals and infra stay named `hermes_*`.
 
 ---
 
 ## Quick start
 
-### 0. Prerequisites
-- Python 3.11+
-- Docker + Docker Compose (for the polished demo)
-- An Anthropic API key
+After any of the three paths below the UI is at **<http://localhost:8080/ui>**.
 
-### 1. Local dev (no Docker)
+You need an Anthropic API key (`sk-ant-…`) — every path uses it the same way.
+
+### Option 1 — Docker Compose (recommended)
+
+The cleanest path. One command brings up the MCP server + agent API + UI in
+their own containers with the right ports, mounts, and durable state volume.
+Nothing to install on your machine besides Docker.
+
+**Prereqs:** Docker Desktop (Windows/Mac) or `docker` + `docker compose` (Linux).
 
 ```bash
 cd hermes_framework
-python -m venv .venv && source .venv/bin/activate     # or .venv\Scripts\activate on Windows
+cp .env.example .env            # then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+
+docker compose up --build       # first run takes 1-2 min to build images
+```
+
+Open <http://localhost:8080/ui>, click a suggested query, watch it run.
+
+**When you're done:** to stop AND wipe persisted session state (recommended
+between demos so old sessions don't auto-resume), use the `-v` flag:
+
+```bash
+docker compose down -v          # the -v removes the hermes-state volume
+```
+
+Plain `docker compose down` keeps the state volume — your previous sessions
+will be resumed on the next startup. That's a feature (durability across
+restarts), but a footgun if you want a clean slate.
+
+### Option 2 — Local Python (no Docker)
+
+Faster iteration when you're editing code. Two terminals required: one for
+the MCP server, one for the agent API.
+
+**Prereqs:** Python 3.11+ (`python --version` to check).
+
+```bash
+cd hermes_framework                                # ← critical, see note below
+python -m venv .venv
+.venv\Scripts\activate                             # Windows
+# source .venv/bin/activate                        # macOS/Linux
 pip install -e ".[dev]"
 
-cp .env.example .env
-# edit .env — at minimum set ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env                               # then edit .env, set ANTHROPIC_API_KEY=...
+```
 
-# Terminal 1: MCP server (reads Sample_FastMCP.py + fake_database.db)
+Then in **Terminal A**:
+
+```bash
+cd hermes_framework
 python -m app.mcp_server
+```
 
-# Terminal 2: agent API
+And in **Terminal B**:
+
+```bash
+cd hermes_framework
 python -m app.main
 ```
 
-Open <http://localhost:8080/ui> in a browser and try one of the suggested queries.
+Open <http://localhost:8080/ui>.
 
-### 2. Docker Compose (full stack)
+> **The `cd hermes_framework` matters in BOTH terminals.** `.env` is loaded
+> relative to your current directory. Running from one level up causes:
+> `TypeError: Could not resolve authentication method. Expected either
+> api_key or auth_token to be set.` That's not a code bug — it just means
+> the `.env` wasn't found.
+
+### Option 3 — Run tests only
+
+If you just want to verify the codebase compiles and the load-bearing logic
+works without spinning up the stack or burning API tokens:
 
 ```bash
 cd hermes_framework
-cp .env.example .env
-# put ANTHROPIC_API_KEY in .env
-docker compose up --build
-```
-
-Then:
-- **Agent UI**: <http://localhost:8080/ui>
-- **MCP server**: <http://localhost:7700/mcp/> (direct probe; expects MCP client)
-
-### 3. Tests
-
-```bash
 pip install -e ".[dev]"
-pytest -q
+python -m pytest -q              # 37 tests, ~20s, zero LLM calls
 ```
 
-The test suite focuses on the load-bearing logic (sandbox AST policy,
-`validate_and_repair` auto-repair, DAG scheduler topology, SSE replay, marker
-parsing) — not the LLM-dependent paths, which are exercised via the demo script.
+The suite covers sandbox AST policy, `validate_and_repair` auto-repair, DAG
+scheduler topology, SSE replay, marker parsing, and the resume-on-startup
+plumbing. LLM-dependent paths are exercised via the live demo, not unit tests.
 
 ---
 
