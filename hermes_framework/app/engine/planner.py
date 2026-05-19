@@ -111,18 +111,36 @@ def _has_cycle(tasks: list[Task]) -> bool:
     return any(dfs(n) for n in graph)
 
 
-def validate_and_repair(plan: Plan) -> tuple[Plan, list[dict[str, Any]]]:
+def validate_and_repair(
+    plan: Plan,
+    live_tools: Optional[list[dict[str, Any]]] = None,
+) -> tuple[Plan, list[dict[str, Any]]]:
     """Auto-rewrite >20-doc TOOL_CALLs and reject structural errors.
 
     Returns (plan, repairs). `repairs` is the list to emit as plan.repaired
     SSE events.
+
+    If `live_tools` is provided, also rejects TOOL_CALL tasks that reference
+    a tool name the MCP server doesn't actually have. This catches planner
+    hallucinations *at plan time* — without the guard, the scheduler retries
+    the call 3× before giving up, wasting time and emitting noisy errors.
+    Pass `live_tools=None` to skip the check (useful when MCP discovery itself
+    failed and the planner had to rely on prompt knowledge only).
     """
     repairs: list[dict[str, Any]] = []
     threshold = settings.bulk_doc_threshold
+    known_tools = {t.get("name") for t in (live_tools or []) if t.get("name")}
 
     new_tasks: list[Task] = []
     for t in plan.tasks:
         if t.kind == TaskKind.TOOL_CALL:
+            tool_name = (t.spec.get("tool") or "").strip()
+            # Hallucinated tool name — fail fast, don't waste retry budget.
+            if known_tools and tool_name and tool_name not in known_tools:
+                raise ValueError(
+                    f"task {t.id} references unknown tool '{tool_name}'. "
+                    f"Available tools: {sorted(known_tools)}"
+                )
             count = _count_doc_ids(t.spec.get("args", {}) or {})
             if count > threshold:
                 rewritten = _rewrite_as_code(t)

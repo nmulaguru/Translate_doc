@@ -19,8 +19,14 @@ services:
       - MCP_PORT=7700
       - MCP_HOST=0.0.0.0
       - ASSESSMENT_DIR=/srv/Assessment
+    # Assessment/ is bind-mounted read-write because Sample_FastMCP needs to
+    # CREATE one file inside it: hermes_search_index.db (the FTS5 BM25 index,
+    # built lazily on first search_documents call). fake_database.db is
+    # opened with mode=ro inside Sample_FastMCP, so the source data is safe.
+    # If you want stronger isolation, swap to a tmpfs or named volume mounted
+    # at /srv/Assessment/hermes_search_index.db specifically.
     volumes:
-      - ../Assessment:/srv/Assessment:ro
+      - ../Assessment:/srv/Assessment:rw
     ports:
       - "7700:7700"
 
@@ -37,6 +43,7 @@ services:
     volumes:
       - hermes-state:/data
       - ./artifacts:/srv/artifacts
+      # The API container only READS Assessment/ — keep this read-only.
       - ../Assessment:/srv/Assessment:ro
     ports:
       - "8080:8080"

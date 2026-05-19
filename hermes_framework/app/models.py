@@ -31,6 +31,10 @@ class TaskStatus(str, Enum):
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
+    # Task was RUNNING when the orchestrator process died. On startup the
+    # resume worker marks it INTERRUPTED and re-runs it from its last
+    # checkpoint. Distinct from FAILED so the scheduler knows it's resumable
+    # with no replan needed.
     INTERRUPTED = "INTERRUPTED"
     SKIPPED = "SKIPPED"
 
@@ -87,6 +91,9 @@ class Session(BaseModel):
     status: SessionStatus = SessionStatus.CREATED
     created_at: str = Field(default_factory=_now)
     final_answer: Optional[str] = None
+    # Optional caller-provided URL — fired on session.completed / session.error
+    # so long-running jobs can notify backends instead of holding open SSE.
+    webhook_url: Optional[str] = None
     questions: list[Question] = Field(default_factory=list)
 
 
@@ -103,6 +110,9 @@ class Event(BaseModel):
 class CreateSessionRequest(BaseModel):
     container_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Optional — POSTed with the final-answer payload when the session ends.
+    # Useful for jobs that outlive the user's SSE connection.
+    webhook_url: Optional[str] = None
 
 
 class CreateSessionResponse(BaseModel):

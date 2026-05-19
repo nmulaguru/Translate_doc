@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -13,8 +15,40 @@ from app.state.checkpoint import write_task_output
 from app.state.store import Store
 from app.workers.base import WorkerContext
 
+
+def _load_artifact(artifact_ref: str | None) -> Any:
+    """On resume, reconstitute a task's full output from its artifact file.
+
+    The store keeps a small preview in tasks.output_blob but the full result
+    spills to artifacts/<session>/<task>.json when over the inline limit.
+    Downstream tasks need the full data, not the preview.
+    """
+    if not artifact_ref:
+        return None
+    p = Path(artifact_ref)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
 _MAX_CONCURRENT = 8  # raised from 4: more DAG tasks execute in parallel waves
-_FATAL_HINTS = ("ValueError", "not found", "missing")
+# Substrings in `type(err).__name__: err.message` that mark a failure as
+# DETERMINISTIC — same attempt will produce the same error. Don't retry.
+# Splits into two groups for documentation only; behaviour is identical.
+_FATAL_HINTS = (
+    # Domain-level fatal — the request itself is wrong.
+    "ValueError", "not found", "missing",
+    # Python-level bugs in generated code — retrying re-executes the same
+    # buggy script and burns time. The orchestrator's replan path is the
+    # right recovery: the planner regenerates code with the error context.
+    "TypeError", "SyntaxError", "NameError", "AttributeError",
+    "ImportError", "ModuleNotFoundError", "IndentationError",
+    # Sandbox guard violations — the script tried something the policy bans.
+    # Regenerating differently is the only fix; retrying produces the same.
+    "PolicyViolation", "violates sandbox policy",
+)
 
 # Task kinds that run in the CodeWorker sandbox — get the bulk timeout by default.
 _BULK_KINDS = {TaskKind.BULK_TOOL_CALL, TaskKind.CODE_TRANSFORM}
@@ -47,7 +81,24 @@ class Scheduler:
         available_containers: list[str] | None = None,
     ) -> dict[str, Any]:
         outputs: dict[str, Any] = {}
+        # INTERRUPTED tasks are resumable — promote them back to PENDING with
+        # their checkpoint intact so the code worker can pick up where it
+        # stopped (see __resume_from__ injection in code_worker.py).
+        for t in plan.tasks:
+            if t.status == TaskStatus.INTERRUPTED:
+                t.status = TaskStatus.PENDING
         statuses: dict[str, TaskStatus] = {t.id: t.status for t in plan.tasks}
+        # Seed outputs with the cached results of already-SUCCEEDED tasks so
+        # downstream tasks can still read __upstream__ on resume. Prefer the
+        # full artifact file over the inline preview when both exist.
+        for t in plan.tasks:
+            if t.status != TaskStatus.SUCCEEDED:
+                continue
+            full = _load_artifact(t.artifact_ref) if t.artifact_ref else None
+            if full is not None:
+                outputs[t.id] = full
+            elif t.output is not None:
+                outputs[t.id] = t.output
         by_id: dict[str, Task] = {t.id: t for t in plan.tasks}
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
         avail = available_containers or []
@@ -110,6 +161,7 @@ class Scheduler:
             upstream_outputs=outputs,
             bus=self.bus,
             available_containers=available_containers,
+            store=self.store,
         )
 
         # Bulk sandbox tasks get a higher timeout unless the planner set one explicitly.

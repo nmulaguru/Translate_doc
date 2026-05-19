@@ -37,6 +37,92 @@ prevent both, structurally.
 
 ## 2. Component map
 
+### Visual overview
+
+```mermaid
+flowchart TB
+    subgraph Client["Client surface"]
+        UI["/ui (SSE viewer)"]
+        Curl["curl / HTTPie / SDK"]
+    end
+
+    subgraph Gateway["FastAPI Gateway · app/api/server.py"]
+        REST["POST /v1/sessions/messages<br/>POST /v1/sessions/answer<br/>GET /v1/sessions/status (poll)"]
+        SSE["GET /v1/sessions/events<br/>SSE · replayable via ?cursor"]
+        Static["/artifacts/* · static serve"]
+    end
+
+    subgraph Engine["Agent engine · app/engine/"]
+        Orch["Orchestrator<br/>top-level loop + webhook"]
+        Inter["Interrogator<br/>Plan Mode · 1 LLM call"]
+        Plan["Planner<br/>emit_plan + adaptive thinking"]
+        VR["validate_and_repair<br/>20-doc rule · unknown-tool guard"]
+        Sched["Scheduler<br/>topo-wave DAG · semaphore 8"]
+        Synth["Synthesizer<br/>final markdown answer"]
+    end
+
+    subgraph Workers["Workers · app/workers/"]
+        TW["ToolWorker<br/>one MCP call"]
+        CW["CodeWorker<br/>generate Python + sandbox<br/>+ heartbeat watchdog"]
+        SW["SubAgentWorker<br/>child Claude session<br/>(HTML / synthesis)"]
+    end
+
+    subgraph Sandbox["Sandbox · app/sandbox/"]
+        Run["runner.py · subprocess"]
+        Policy["policy.py · AST allowlist + filtered builtins"]
+        Shim["mcp_shim.py · sandbox→MCP bridge"]
+    end
+
+    subgraph State["State · app/state/"]
+        Store["SQLite WAL<br/>sessions / plans / tasks /<br/>events / questions / checkpoints"]
+        Arts["artifacts/ dir"]
+    end
+
+    subgraph MCP["MCP Server · Sample_FastMCP.py"]
+        Tools["4 required tools<br/>+ search_documents (FTS5)"]
+        DB[("fake_database.db<br/>36K docs")]
+    end
+
+    LLM[("Anthropic API<br/>Sonnet 4.6")]
+
+    UI -->|HTTP + SSE| REST
+    UI -->|EventSource| SSE
+    UI -->|<a>| Static
+    Curl --> REST
+    Curl --> SSE
+
+    REST --> Orch
+    SSE -.->|emits| Orch
+    Static --> Arts
+
+    Orch --> Inter
+    Orch --> Plan
+    Orch --> VR
+    Orch --> Sched
+    Orch --> Synth
+    Orch -.->|persists| Store
+
+    Inter --> LLM
+    Plan --> LLM
+    Synth --> LLM
+
+    Sched --> TW
+    Sched --> CW
+    Sched --> SW
+
+    TW --> Tools
+    CW --> Run
+    Run --> Policy
+    Run --> Shim
+    Shim --> Tools
+    SW --> LLM
+    SW -.->|spills| Arts
+
+    Tools --> DB
+```
+
+### Detailed ASCII layout
+
 ```
                  ┌─────────────────────────────────────────────┐
                  │ Client (browser / curl / Postman)           │
@@ -95,6 +181,77 @@ prevent both, structurally.
 The **bus** is a per-session `asyncio.Queue` and a SQLite append-only log
 working together: every event is written to both, so live SSE subscribers
 get it immediately and late ones replay from a cursor.
+
+### Request lifecycle — what happens for one user message
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant API as FastAPI
+    participant O as Orchestrator
+    participant Int as Interrogator
+    participant Pl as Planner
+    participant VR as validate_and_repair
+    participant S as Scheduler
+    participant W as Worker
+    participant MCP as MCP Server
+    participant Sy as Synthesizer
+
+    U->>API: POST /v1/sessions/{id}/messages
+    API-->>U: 202 Accepted (immediate)
+    API->>O: start_session() — background task
+
+    O->>Int: interrogate(user_msg, container_id)
+    Int->>Int: LLM call #1 (proceed | ask_clarifications)
+    alt request is ambiguous
+        Int-->>U: SSE plan_mode.question
+        U->>API: POST /answer
+        API->>O: resume_session(answers)
+    end
+
+    O->>Pl: plan(user_msg, container_id, live_tools)
+    Pl->>Pl: LLM call #2 (emit_plan tool, adaptive thinking)
+    Pl-->>U: SSE planner.thinking deltas (streaming)
+    Pl->>O: structured Plan (DAG of Task objects)
+
+    O->>VR: validate_and_repair(plan, live_tools)
+    Note over VR: rewrite >20-doc TOOL_CALL → CODE_TRANSFORM<br/>reject unknown tool names<br/>detect cycles + duplicate IDs
+    VR-->>U: SSE plan.repaired (per rewrite)
+    O-->>U: SSE plan.created
+
+    O->>S: scheduler.run(plan)
+    loop topological wave (semaphore = 8)
+        S->>W: execute(task) — Tool / Code / SubAgent
+        alt CODE_TRANSFORM
+            W->>W: LLM call #3 (generate Python)
+            W->>W: compile() pre-check
+            W->>MCP: ~N MCP calls from sandbox
+            W-->>U: SSE task.code_progress + task.checkpoint
+        else TOOL_CALL / RAG_QUERY
+            W->>MCP: one MCP call
+            W-->>U: SSE task.mcp_call + task.mcp_result
+        else SUBAGENT
+            W->>W: LLM call (child Claude session)
+        end
+        W-->>U: SSE task.completed
+    end
+
+    alt any task failed
+        O->>Pl: replan once (MAX_REPLANS=1) with prior_failure
+        Pl->>O: revised plan
+        O->>S: scheduler.run(revised_plan)
+    end
+
+    O->>Sy: synthesize(plan, outputs, user_msg)
+    Sy->>Sy: LLM call #4 (compose markdown answer)
+    Sy->>O: final answer (with absolute artifact URLs)
+    O-->>U: SSE session.completed
+    O->>U: POST webhook (if webhook_url set)
+```
+
+**Total LLM calls per simple query: 4** (interrogator + planner + 0–1 code-gen + synthesizer).
+Bulk operations across 1M docs add zero LLM calls — only MCP calls from inside the sandbox.
 
 ---
 
@@ -226,8 +383,22 @@ are the real sandbox defense.
 **Note:** `RLIMIT_AS` was removed from the runner because it limits virtual
 address space (not RSS), and modern Python + httpx + the MCP SDK can reserve
 >512MB of virtual address space without actually using it — this killed the
-subprocess silently at startup. The wall-clock timeout in `code_worker.py`
-(`asyncio.wait_for`) is the enforced memory/time safety net.
+subprocess silently at startup. Liveness is enforced by the **heartbeat
+watchdog** in `code_worker.py` (described below), not by RSS limits.
+
+### Heartbeat-based liveness (replaces the old hard timeout)
+
+For `CODE_TRANSFORM` / `BULK_TOOL_CALL` tasks, the wall-clock `task.timeout_s`
+is a 24-hour backstop — not the real liveness check. A separate watchdog
+coroutine polls every 5 s and kills the subprocess only if **no marker
+appears on stdout for `sandbox_heartbeat_timeout_seconds`** (default 300 s).
+Every `##PROGRESS##`, `##MCP_CALL##`, `##CHECKPOINT##`, `##LOG##` line bumps
+the activity timestamp. A real 17-hour 1M-document translation runs to
+completion as long as something is happening; a hung script dies in 5 minutes.
+
+Non-bulk tasks (`TOOL_CALL`, `RAG_QUERY`) keep the simple `asyncio.wait_for`
+deadline because they're either one MCP call or one LLM call — there's
+nothing to heartbeat against.
 
 ### Marker protocol
 
@@ -283,9 +454,35 @@ bounded replan (`MAX_REPLANS = 1`): feeds the prior plan + failure + checkpoint
 back to the planner with a "replan around this" prompt. Capped at one replan
 per session.
 
-**Bulk task timeout:** `CODE_TRANSFORM` and `BULK_TOOL_CALL` tasks get
-`sandbox_bulk_timeout_seconds` (default 600s) instead of the standard 120s,
-unless the planner explicitly set a timeout.
+**Bulk task budget:** `CODE_TRANSFORM` and `BULK_TOOL_CALL` tasks default to
+the 24-hour `sandbox_bulk_timeout_seconds` backstop with a 300-s heartbeat
+threshold (see §5). Non-bulk tasks use the standard 120-s deadline.
+
+### Resume-on-startup (durable execution across process death)
+
+The orchestrator runs in-process and a uvicorn restart would normally lose
+all in-flight work. To survive that, every `##CHECKPOINT##` marker is
+persisted to `tasks.checkpoint_json` immediately — not just at task end. On
+FastAPI startup, the lifespan calls `orchestrator.resume_interrupted_sessions()`:
+
+1. `find_resumable_sessions()` returns sessions whose `status` is `PLANNING`
+   or `EXECUTING` (terminal states are skipped).
+2. `mark_running_tasks_interrupted(session_id)` promotes any `RUNNING` tasks
+   to a new `INTERRUPTED` status.
+3. `_run_resume()` loads the latest plan via `latest_plan_for_session()`,
+   which overlays current task state (status, attempts, checkpoint, artifact)
+   from the `tasks` table onto the plan snapshot.
+4. `Scheduler.run()` promotes `INTERRUPTED → PENDING` (preserving
+   `task.checkpoint`) and seeds `outputs[]` for already-`SUCCEEDED` tasks
+   by loading their full artifact files — so downstream tasks see real
+   upstream data, not just the inline preview.
+5. The `CodeWorker` injects `task.checkpoint` into the sandbox as
+   `__resume_from__`. Generated scripts (canonical Pattern F) read it at
+   the top of `main()`: `start_page = (__resume_from__ or {}).get("page", 0) + 1`.
+
+Net effect: a process restart loses ≤ one chunk of work per in-flight task.
+The 1M-doc translation that was 47 pages into a 500-page bulk job picks
+back up at page 48 automatically.
 
 ---
 
@@ -318,11 +515,12 @@ list to the planner so it can fan out across all of them (cross-container
 ## 8. State model
 
 ```
-sessions(id PK, container_id, status, created_at, user_msg, final_answer)
+sessions(id PK, container_id, status, created_at, user_msg, final_answer,
+         webhook_url)
 plans(id PK, session_id FK, goal, json_blob, created_at)
 tasks(id PK, plan_id FK, kind, title, depends_on_json, spec_json,
       status, attempts, output_blob, artifact_ref, error,
-      started_at, ended_at)
+      started_at, ended_at, checkpoint_json)
 events(id PK AUTOINC, session_id, ts, type, payload_json)  -- INDEX (session_id, id)
 questions(id PK, session_id FK, text, options_json, answer, asked_at, answered_at)
 checkpoints(id PK, session_id, task_id, output_ref, created_at)
@@ -330,6 +528,18 @@ checkpoints(id PK, session_id, task_id, output_ref, created_at)
 
 WAL mode. `events` is append-only — never updated — which enables the SSE
 replay-from-cursor pattern.
+
+`sessions.webhook_url` is optionally set on session creation; the orchestrator
+POSTs the final-answer payload there on `session.completed` / `session.error`.
+
+`tasks.checkpoint_json` is updated after **every** `##CHECKPOINT##` marker
+(via `Store.update_task_checkpoint()`, which bypasses the full row upsert).
+This is the durability anchor for resume-on-startup — without it, a crash
+mid-task would lose the resume offset.
+
+Both columns are added via `ALTER TABLE ... ADD COLUMN` in `Store.connect()`
+with `duplicate column` errors swallowed, so existing demo DBs auto-migrate
+on first run.
 
 **Output size handling.** Task outputs ≤8KB stay inline in `tasks.output_blob`.
 Larger outputs spill to `./artifacts/{session_id}/{task_id}.json|html` and
@@ -343,6 +553,7 @@ carry `output_preview` (≤8KB) and `artifact_ref` — never the full output.
 | Event type | When |
 |---|---|
 | `session.started` | message accepted |
+| `session.resumed` | session being re-executed after a process restart |
 | `container.resolved` | container auto-resolved without asking |
 | `plan_mode.question` | clarification needed |
 | `plan_mode.answered` | answer received |
@@ -389,6 +600,42 @@ appropriately.
 
 The router lives in `app/engine/router.py` and is stateless.
 
+### Decision tree — how a user query becomes typed tasks
+
+```mermaid
+flowchart LR
+    Q[User query] --> P[Planner emits DAG plan]
+    P --> D{Task spec.kind?}
+
+    D -->|single tool call<br/>≤20 doc IDs| TC[TOOL_CALL]
+    D -->|aiagent Q&A<br/>one container| RQ[RAG_QUERY]
+    D -->|iterative / bulk /<br/>cross-container| CT[CODE_TRANSFORM]
+    D -->|explicit bulk MCP call| BTC[BULK_TOOL_CALL]
+    D -->|HTML dashboard / report| SA[SUBAGENT]
+    D -->|final user-facing answer| SY[SYNTHESIZE]
+
+    TC --> TWa[ToolWorker]
+    RQ --> TWa
+    CT --> CWa[CodeWorker]
+    BTC --> CWa
+    SA --> SWa[SubAgentWorker]
+    SY --> SWa
+
+    TWa --> MCP[(MCP Server)]
+    CWa --> SB["Sandbox subprocess<br/>generate Python +<br/>AST allowlist +<br/>heartbeat watchdog"]
+    SB --> MCP
+    SWa --> LLM[(Anthropic API)]
+
+    style TC fill:#7aa2ff20,stroke:#7aa2ff
+    style RQ fill:#7aa2ff20,stroke:#7aa2ff
+    style CT fill:#fbbf2420,stroke:#fbbf24
+    style BTC fill:#fbbf2420,stroke:#fbbf24
+    style SA fill:#4ade8020,stroke:#4ade80
+    style SY fill:#4ade8020,stroke:#4ade80
+```
+
+**Rule of thumb:** if the task iterates over docs or spans containers, it's `CODE_TRANSFORM`. If it's one MCP call with known args, it's `TOOL_CALL`. If it composes a response from upstream data, it's `SUBAGENT` (HTML) or `SYNTHESIZE` (markdown).
+
 ---
 
 ## 11. Tradeoffs considered
@@ -434,39 +681,112 @@ MCP tool (FTS5 + structured filters) is the right abstraction for this corpus.
 
 ## 12. Scaling to 1M documents
 
-| Layer | At 36K docs | At 1M docs | What changes |
+Honest accounting of what happens for "translate 1,000,000 documents" across
+4 containers (250K per container) at simulated 0.02 s/doc, MCP semaphore=200.
+
+### LLM calls — fixed at 4
+
+| # | Call | Cost driver |
+|---|---|---|
+| 1 | Interrogator | one-shot tool choice |
+| 2 | Planner (adaptive thinking + emit_plan) | scales with prompt complexity, not corpus size |
+| 3 | CodeWorker (generates the ~150-LOC script) | one shot |
+| 4 | Synthesizer (composes final answer from task outputs) | bounded by output size |
+
+**This number does not change with corpus size.** 100 docs and 1M docs both
+make exactly 4 LLM calls. The agent layer is decoupled from per-document work.
+
+### MCP tool calls — agent-visible vs. server-internal
+
+| Layer | Calls for 1M docs across 4 containers | Why |
+|---|---|---|
+| Agent → MCP HTTP | ~104 calls total | ~100 paginated metadata fetches + 4 bulk-translate (one per container, full ID list as one arg) |
+| Inside MCP server (invisible to agent) | 1,000,000 translations | The translate tool iterates the ID list with `Semaphore(200)` and `wave_size=1000` |
+
+**The MCP server does the heavy lifting.** The agent layer's job is to
+*describe* the work and *track* it — not to drive a per-document loop.
+
+### Scaling table
+
+| Layer | At 36 K docs | At 1 M docs | What changes |
 |---|---|---|---|
-| Planner context | O(1) doc IDs | O(1) doc IDs | nothing — by design |
-| Plan complexity | 2-3 tasks | 2-3 tasks | nothing |
-| Code worker | 200-doc chunks, asyncio.gather per container | same chunk size, add Semaphore(8) for parallel chunks | chunk size tunable |
-| MCP server | single process | horizontal scale behind load balancer | tools are stateless |
-| State DB | SQLite WAL | Postgres + Redis | swap app/state/store.py |
-| Event volume | ~100 events/session | ~100 events/session | bounded per chunk, not per doc |
-| Memory | few MB per session | same | large outputs spill to artifacts/ already |
+| Planner LLM calls | 4 | 4 | nothing |
+| Doc IDs in planner context | O(1) | O(1) | nothing — by design |
+| MCP HTTP calls from agent | ~10 | ~104 | one per metadata page + one per container for bulk translate |
+| Code-worker chunk loop | parallel per container | same — `asyncio.gather` across containers | nothing |
+| MCP server concurrency | `Semaphore(200)` | `Semaphore(200)` per replica — scale horizontally with nginx round-robin | tool is stateless reads + write-once outputs |
+| State DB | SQLite WAL | SQLite OK to 5-10 M events; Postgres beyond | `app/state/store.py` is the only seam to swap |
+| Event volume | ~100 events / session | ~500-1500 events / session | bounded by chunks/markers, not docs |
+| Memory in agent process | few MB | few MB | outputs >8 KB spill to `artifacts/`; only IDs flow through |
+| Wall-clock at 0.02 s/doc simulated | < 5 s | ~85 s | 100 K÷200 ≈ 500 batches × 0.02 s = 10 s + paging |
+| Wall-clock at 60 s/doc real translation | ~3 h | ~83 h | bounded by MCP semaphore; scale MCP horizontally to compress |
 
-Two specific scale-out edits when going to 1M:
+### What survives a process restart
 
-1. **Parallel chunks.** Current generated code is sequential per chunk.
-   For 1M docs, the code-gen prompt can ask for `asyncio.Semaphore(8)` wrapping
-   chunk dispatch. The MCP server's translate tool already does in-tool concurrency.
-2. **Resumable bulk.** The `##CHECKPOINT##` marker + `task.checkpoint` in Task
-   model are built for this — a failed/timed-out bulk job can pass its last
-   checkpoint to the replanner, which restarts from that offset.
+`uvicorn` is fungible. State is in SQLite. On boot:
+
+- Sessions in `EXECUTING` / `PLANNING` are detected by
+  `Store.find_resumable_sessions()`.
+- Their `RUNNING` tasks → `INTERRUPTED` → re-executed by `_run_resume()`.
+- Each task's `__resume_from__` is its last persisted checkpoint, so the
+  generated code skips already-processed pages (`Pattern F` in `prompts.py`).
+- Up-to-date upstream outputs are loaded from artifact files, not just the
+  8-KB inline preview, so downstream tasks see real data.
+
+A 1M-doc job that's 200 K docs in when the process dies resumes at doc
+~200 K + chunk_size on the next start. The user sees a `session.resumed`
+event and the original SSE / polling / webhook channels continue.
+
+### What clients see — hybrid streaming
+
+Three channels for the SAME terminal payload:
+
+1. **SSE** (`GET /v1/sessions/{id}/events?cursor=N`) — live, replayable.
+   Best for browsers and short jobs.
+2. **Polling** (`GET /v1/sessions/{id}/status`) — cheap status snapshot.
+   Best for proxies / CDNs / backends that can't hold SSE open for hours.
+3. **Webhook** (POST to `webhook_url` set on session creation) — fire-on-done.
+   Best for genuinely long jobs where the user has left the page.
+
+### What's left to be "true 1M production"
+
+| Concern | Status today | What you'd add |
+|---|---|---|
+| MCP server horizontal scale | single-replica `Sample_FastMCP.py` | nginx + 3-10 replicas behind it (SQLite read-only is safe) |
+| Per-tenant auth & rate limit | none | gateway in front of `/v1/*` |
+| Distributed orchestrator (multi-process) | single in-process orchestrator | Temporal / Argo, replacing `Orchestrator` while keeping store + bus |
+| Vector retrieval | BM25/FTS5 only (`search_documents`) | add `search_documents_semantic` MCP tool backed by PgVector or Milvus |
 
 ---
 
 ## 13. Production checklist (not for the demo)
 
+Done in this round (no longer "production-only"):
+
+- [x] Heartbeat-based liveness for bulk tasks (replaces fixed timeout).
+- [x] Durable resume after process death (checkpoint persisted per-marker,
+      lifespan re-execution, `INTERRUPTED` task status).
+- [x] Polling fallback when SSE can't survive proxy timeouts.
+- [x] Webhook delivery on terminal session events.
+- [x] Clickable absolute artifact URLs in final answers.
+
+Still production-only:
+
 - [ ] Replace subprocess sandbox with E2B or Firecracker.
 - [ ] Auth: API keys per tenant, scoped to container_ids.
-- [ ] Move event log to Postgres; partition by day.
-- [ ] Move session state to Redis with TTL.
+- [ ] Move event log to Postgres; partition by day. Move sessions/tasks
+      to Postgres + Redis with TTL for multi-process orchestrator.
+- [ ] Replace in-process orchestrator with Temporal / Argo Workflows for
+      true multi-process durability (resume-on-startup is the SQLite-era
+      version of this story).
 - [ ] Backpressure on SSE bus (`asyncio.Queue(maxsize=1024)`; drop-and-log oldest on overflow).
 - [ ] Persistent MCP client pool (N=10 streaming sessions, round-robin).
 - [ ] Cost telemetry: every Anthropic call emits `usage` block to OpenTelemetry spans.
 - [ ] Audit log: events table already serves as one; add export to S3.
 - [ ] Soft delete + retention on artifacts/.
 - [ ] Multi-turn within a session: keep conversation history across `POST /messages` calls.
+- [ ] Vector retrieval: add `search_documents_semantic` MCP tool backed by
+      PgVector or Milvus for true semantic recall alongside the existing BM25.
 
 ---
 
@@ -474,8 +794,14 @@ Two specific scale-out edits when going to 1M:
 
 | Gap | Status |
 |---|---|
-| `RLIMIT_AS` sandbox memory limit | Removed — kills process at startup on Python 3.11+; wall-clock timeout is the enforcer |
+| `RLIMIT_AS` sandbox memory limit | Removed — kills process at startup on Python 3.11+; heartbeat watchdog is the enforcer |
 | `python -I` isolated mode | Removed — implies `-P` which strips CWD from sys.path, breaking module loading; `PYTHONPATH` set explicitly instead |
-| Resume-from-checkpoint in generated code | `##CHECKPOINT##` marker is wired end-to-end; generated scripts don't yet read `__resume_from__` |
+| Resume-from-checkpoint in generated code | **DONE** — `__resume_from__` injected into the sandbox namespace, `tasks.checkpoint_json` persisted after every marker, `latest_plan_for_session` overlays live state |
+| Resume-on-startup for interrupted sessions | **DONE** — FastAPI lifespan calls `orchestrator.resume_interrupted_sessions()` |
+| Heartbeat-based timeout for bulk tasks | **DONE** — 24h hard ceiling + 5min silence watchdog (configurable) |
+| Polling fallback for clients that can't hold SSE open | **DONE** — `GET /v1/sessions/{id}/status` |
+| Webhook on session completion | **DONE** — optional `webhook_url` on session creation, fire-and-forget POST with retry |
 | Multi-turn conversation history | Each `POST /messages` starts a fresh orchestrator run |
+| Vector / embedding retrieval | Not in scope — `search_documents` uses BM25 over FTS5. For semantic recall add `search_documents_semantic` MCP tool backed by PgVector or Milvus |
 | OpenTelemetry / Jaeger tracing | Structured in design but not wired in current code |
+| Horizontal MCP scale-out (production) | Single MCP replica today; `Sample_FastMCP.py` reads SQLite read-only so N replicas behind nginx works without code change — deployment-only |

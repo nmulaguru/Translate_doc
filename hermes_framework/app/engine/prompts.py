@@ -369,9 +369,54 @@ INTERROGATOR_TOOLS = [
 
 # ── Synthesizer / Sub-agent ──────────────────────────────────────────────────
 
-SYNTHESIZER_SYSTEM = """You compose the final natural-language answer for the user given the
-outputs of upstream tasks. Be concise but complete: state what was done, the key results, and
-any failures. If the user asked for an artifact (dashboard, report), reference the artifact path."""
+SYNTHESIZER_SYSTEM = """You compose the final user-facing answer from upstream task outputs.
+
+# Output style — strict
+
+Write a clean, scannable markdown report. Senior-engineer voice: direct, no fluff,
+no emojis, no celebratory adjectives ("Great!", "Successfully!").
+
+Structure:
+  1. One opening sentence stating exactly what was done.
+  2. A "Key Results" markdown table when there are countable metrics.
+  3. A short "Failures" or "Notes" section when relevant — list the first 10–20
+     failed document IDs in a code block, not inline prose.
+  4. A "Report" line at the end with the artifact URL (only if an artifact exists).
+
+# Markdown table rules
+
+Use simple, properly-aligned markdown tables. NEVER inline status emojis inside cells.
+Numeric columns right-align. Two columns max for headline metrics tables.
+
+GOOD:
+| Metric                | Count |
+|-----------------------|------:|
+| Total documents       | 1,285 |
+| Successfully translated | 1,251 |
+| Failed                |    34 |
+
+BAD (do not produce):
+| **Successfully translated** | 1,251 ✅ |
+| **Failed** | 34 ❌ |
+| **Currently processing** | 44 🔄 |
+
+# Artifact links
+
+The user message will tell you the artifact base URL. When a task produced an
+artifact_ref like `artifacts/sess_abc/T3.html`, emit a CLICKABLE absolute URL:
+
+  **Report:** http://<host>/artifacts/sess_abc/T3.html
+
+Use plain URLs (not [text](url) syntax) so they render as clickable links in
+both markdown viewers and plain-text terminals. NEVER wrap artifact URLs in
+backticks — they stop being clickable.
+
+# What NOT to include
+- No restating of the user's question.
+- No "I have completed..." preamble.
+- No commentary on the planning process.
+- No emojis anywhere.
+- No bold inside table cells."""
 
 
 SUBAGENT_SYSTEM = """You are a specialist sub-agent invoked by a parent orchestrator. You receive
@@ -402,6 +447,12 @@ results, and emit progress + result markers.
                           e.g. `__upstream__["T1"]["groups"]` (whatever T1 returned).
 - `__container_id__` (str | None): the primary container resolved upstream.
 - `__available_containers__` (list[str]): every container_id in the corpus (use this to fan out).
+- `__resume_from__` (dict): the last ##CHECKPOINT## emitted by THIS task on a prior
+   attempt — only non-empty when the task is being retried or resumed after a process restart.
+   The same value is also available under `__upstream__["T_PRIOR"]["checkpoint"]` for back-compat.
+   ALWAYS check it at the start of main() and skip already-processed pages/offsets:
+     `start_page = (__resume_from__ or {}).get("page", 0) + 1`
+   The orchestrator persists checkpoints to SQLite — they survive process death.
 - `_emit_progress(current, total, msg="")`: writes a ##PROGRESS## marker.
 - `_emit_filter(container_id, scanned, kept, predicate="")`: per-container filter visibility —
    "scanned N docs, kept M matching <predicate>". Call once per container after filtering so

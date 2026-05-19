@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -14,9 +15,20 @@ from app.config import settings
 from app.engine.prompts import CODE_GEN_TOOL, build_code_gen_system
 from app.llm.anthropic_client import get_async_client
 from app.mcp_client.client import list_tools as mcp_list_tools
-from app.models import Task
+from app.models import Task, TaskKind
 from app.sandbox.policy import PolicyViolation, check_script
 from app.workers.base import Worker, WorkerContext
+
+# Tasks whose scripts iterate over docs — get the heartbeat watchdog instead
+# of a hard wall-clock deadline. The hard ceiling is still applied as a
+# backstop against truly stuck processes.
+_BULK_KINDS = {TaskKind.CODE_TRANSFORM, TaskKind.BULK_TOOL_CALL}
+
+
+class _SandboxLivenessError(Exception):
+    """Raised by the watchdog when the sandbox is silent or over the hard
+    ceiling. Distinct type so the gather handler doesn't catch unrelated
+    exceptions from the readers."""
 
 _PROGRESS_MARKER = "##PROGRESS##"
 _RESULT_MARKER = "##RESULT##"
@@ -52,6 +64,23 @@ class CodeWorker(Worker):
             check_script(script)
         except PolicyViolation as e:
             raise RuntimeError(f"generated code violates sandbox policy: {e}") from e
+
+        # Pre-flight: compile the script in-process to catch SyntaxError,
+        # IndentationError, and a handful of compile-time semantic errors
+        # (return-outside-function, duplicate parameter names, etc.) BEFORE
+        # spinning up the sandbox subprocess. Saves ~1-2 s per syntax bug
+        # and produces a fatal-classed error that skips retries (see Fix A
+        # in scheduler.py `_FATAL_HINTS`). Falls through to the existing
+        # sandbox path on success.
+        try:
+            compile(script, "<sandbox>", "exec")
+        except (SyntaxError, ValueError) as e:
+            # ValueError covers a small set of compile-time edge cases like
+            # null bytes in source. Both are deterministic — retrying with
+            # the same script is pointless; only a replan helps.
+            raise RuntimeError(
+                f"generated code does not compile: {type(e).__name__}: {e}"
+            ) from e
 
         return await self._run_in_sandbox(ctx, task, script)
 
@@ -125,13 +154,22 @@ class CodeWorker(Worker):
             for k in task.depends_on
             if k in ctx.upstream_outputs
         }
-        # Inject upstream + container context as globals so generated scripts
-        # can read them directly. `__available_containers__` lets cross-
-        # container fan-out happen without a discovery round trip.
+        # `__resume_from__` is populated when this task is a retry/replan of
+        # a previously-interrupted bulk task. The generated script reads its
+        # last saved {page, offset, partial_results} from here and skips
+        # already-processed pages. See prompts.py Pattern F.
+        resume_from = task.checkpoint or {}
+        # Also expose upstream checkpoints under T_PRIOR for the canonical
+        # resume pattern used in the planner's worked examples.
+        upstream_with_prior = dict(upstream)
+        if resume_from and "T_PRIOR" not in upstream_with_prior:
+            upstream_with_prior["T_PRIOR"] = {"checkpoint": resume_from}
+
         injected_globals = {
-            "__upstream__": upstream,
+            "__upstream__": upstream_with_prior,
             "__container_id__": ctx.container_id,
             "__available_containers__": list(getattr(ctx, "available_containers", []) or []),
+            "__resume_from__": resume_from,
         }
 
         # Write to a NamedTemporaryFile that we delete ourselves; on Windows the
@@ -192,10 +230,20 @@ class CodeWorker(Worker):
         stderr_lines: list[str] = []
         STDERR_KEEP = 50  # last N lines included in the failure RuntimeError
 
+        # Heartbeat watchdog state. Every marker line we parse bumps
+        # last_activity. If silence exceeds the heartbeat threshold the
+        # watchdog kills the process. For bulk tasks the wall-clock
+        # task.timeout_s is a 24h backstop, not the real liveness check.
+        start_time = time.monotonic()
+        last_activity = time.monotonic()
+        is_bulk = task.kind in _BULK_KINDS
+        heartbeat_s = settings.sandbox_heartbeat_timeout_seconds if is_bulk else None
+
         async def _read_stdout() -> None:
-            nonlocal result, error, latest_checkpoint
+            nonlocal result, error, latest_checkpoint, last_activity
             assert proc.stdout is not None
             async for raw in proc.stdout:
+                last_activity = time.monotonic()
                 line = raw.decode("utf-8", errors="replace").rstrip("\n")
                 if not line:
                     continue
@@ -203,6 +251,15 @@ class CodeWorker(Worker):
                     try:
                         latest_checkpoint = json.loads(line[len(_CHECKPOINT_MARKER):].strip())
                         task.checkpoint = latest_checkpoint
+                        # Persist immediately — this is the durability hook
+                        # that makes resume-on-startup actually work. Without
+                        # this, a crash mid-task loses the offset. Skipped
+                        # if ctx.store is None (test contexts).
+                        if ctx.store is not None:
+                            try:
+                                await ctx.store.update_task_checkpoint(task.id, latest_checkpoint)
+                            except Exception as e:  # noqa: BLE001
+                                logger.warning(f"[checkpoint persist failed] {task.id}: {e}")
                         await ctx.bus.emit(
                             ctx.session_id,
                             "task.checkpoint",
@@ -271,9 +328,11 @@ class CodeWorker(Worker):
                     )
 
         async def _read_stderr() -> None:
+            nonlocal last_activity
             assert proc.stderr is not None
             emitted = 0
             async for raw in proc.stderr:
+                last_activity = time.monotonic()
                 line = raw.decode("utf-8", errors="replace").rstrip("\n")
                 if not line:
                     continue
@@ -293,21 +352,45 @@ class CodeWorker(Worker):
                     )
                     emitted += 1
 
+        # Watchdog: polls every 5s. Raises if either the hard ceiling or the
+        # heartbeat threshold is exceeded; gather propagates the exception
+        # and the outer block kills the process. Exits cleanly when the
+        # subprocess finishes on its own.
+        async def _watchdog() -> None:
+            while True:
+                await asyncio.sleep(5.0)
+                if proc.returncode is not None:
+                    return
+                now = time.monotonic()
+                if task.timeout_s and (now - start_time) > task.timeout_s:
+                    raise _SandboxLivenessError(
+                        f"hard ceiling {task.timeout_s}s exceeded"
+                    )
+                if heartbeat_s and (now - last_activity) > heartbeat_s:
+                    silent_s = int(now - last_activity)
+                    raise _SandboxLivenessError(
+                        f"no progress markers for {silent_s}s "
+                        f"(heartbeat threshold {heartbeat_s}s)"
+                    )
+
         try:
-            await asyncio.wait_for(
-                asyncio.gather(_read_stdout(), _read_stderr(), proc.wait()),
-                timeout=task.timeout_s,
+            await asyncio.gather(
+                _read_stdout(), _read_stderr(), proc.wait(), _watchdog()
             )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+        except _SandboxLivenessError as liveness_err:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
             tail = "\n".join(stderr_lines[-10:])
-            # Preserve checkpoint in task so orchestrator can pass it to the replanner.
             if latest_checkpoint is not None:
                 task.checkpoint = latest_checkpoint
+            cp_hint = ""
+            if isinstance(latest_checkpoint, dict):
+                cp_keys = {k: latest_checkpoint.get(k) for k in ("page", "offset", "processed") if k in latest_checkpoint}
+                if cp_keys:
+                    cp_hint = f" | checkpoint saved: {cp_keys}"
             raise RuntimeError(
-                f"sandbox timed out after {task.timeout_s}s"
-                + (f" | checkpoint saved (offset={latest_checkpoint})" if latest_checkpoint else "")
+                f"sandbox liveness: {liveness_err}{cp_hint}"
                 + (f"\nstderr tail:\n{tail}" if tail else "")
             ) from None
         finally:

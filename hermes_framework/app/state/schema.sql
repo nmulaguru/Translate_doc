@@ -11,8 +11,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     status        TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     user_msg      TEXT NOT NULL,
-    final_answer  TEXT
+    final_answer  TEXT,
+    webhook_url   TEXT
 );
+
+-- Index for resume-on-startup query (find sessions still EXECUTING/PLANNING).
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 
 CREATE TABLE IF NOT EXISTS plans (
     id          TEXT PRIMARY KEY,
@@ -35,7 +39,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     artifact_ref    TEXT,
     error           TEXT,
     started_at      TEXT,
-    ended_at        TEXT
+    ended_at        TEXT,
+    -- Last ##CHECKPOINT## emitted by the sandbox for this task. Persisted
+    -- after EVERY checkpoint marker (not just at task end) so a process
+    -- crash mid-task doesn't lose the resume offset.
+    checkpoint_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (

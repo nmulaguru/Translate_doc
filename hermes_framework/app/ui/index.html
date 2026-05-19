@@ -2,66 +2,122 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Hermes Framework — Live Agent Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Argos — agent console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="/ui-assets/styles.css" />
 </head>
-<body>
-  <header>
-    <h1>Hermes Framework</h1>
-    <p class="tagline">API-driven multi-agent agentic framework over MCP. Watch the planner think, the DAG execute, and the workers stream progress.</p>
+<body data-theme="dark">
+  <!-- ────────────────────────────────────────────────────────────────── -->
+  <!-- Top bar: brand, status, session id, theme toggle.                  -->
+  <!--                                                                    -->
+  <!-- Brand: Argos Panoptes — the many-eyed watcher of Greek myth. The   -->
+  <!-- five-dot mark (one central + four satellites) literalises the      -->
+  <!-- multi-agent / fan-out + observability story: one orchestrator,     -->
+  <!-- many eyes (sub-agents / tools) watching in parallel.               -->
+  <!-- ────────────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true" title="Argos — multi-agent orchestrator">
+        <svg viewBox="0 0 32 32" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+          <!-- four satellite "eyes" that pulse in sequence (CSS-driven) -->
+          <circle class="eye eye-1" cx="8"  cy="8"  r="2.2" />
+          <circle class="eye eye-2" cx="24" cy="8"  r="2.2" />
+          <circle class="eye eye-3" cx="24" cy="24" r="2.2" />
+          <circle class="eye eye-4" cx="8"  cy="24" r="2.2" />
+          <!-- central core (the orchestrator) -->
+          <circle class="core"      cx="16" cy="16" r="4"   />
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>Argos</strong>
+        <span class="tagline">many-eyed multi-agent orchestration over MCP</span>
+      </div>
+    </div>
+    <div class="status-strip" role="status" aria-live="polite">
+      <span class="pill status-pill" id="status-pill" data-state="idle">idle</span>
+      <span class="meta">session <code id="session-id">—</code></span>
+      <span class="meta progress-meta">
+        <span id="progress-label">0%</span>
+        <span class="progress-bar"><span id="progress-fill" style="width:0%"></span></span>
+      </span>
+      <button type="button" id="theme-toggle" class="ghost-btn" title="Toggle theme">◐</button>
+    </div>
   </header>
 
-  <main>
-    <section id="composer">
-      <label>
-        <span>Container ID <em style="color: var(--muted); font-style: normal; font-size: 11px;">(optional — agent will infer or ask)</em></span>
-        <input id="container-id" type="text" placeholder="leave blank — agent figures it out" />
-      </label>
-      <label>
-        <span>Your request</span>
+  <main class="grid">
+    <!-- ────────────────────────────────────────────────────────────────  -->
+    <!-- Left column: compose, reasoning, clarifications.                  -->
+    <!-- ────────────────────────────────────────────────────────────────  -->
+    <section class="panel composer" aria-labelledby="composer-h">
+      <h2 id="composer-h">Compose</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Container <em>optional — agent infers or asks</em></span>
+          <input id="container-id" type="text" placeholder="container_001" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Webhook <em>optional — POSTed on completion</em></span>
+          <input id="webhook-url" type="url" placeholder="https://example.com/hook" autocomplete="off" />
+        </label>
+      </div>
+      <label class="field">
+        <span>Request</span>
         <textarea id="user-msg" rows="3" placeholder="Translate all my financial documents to German"></textarea>
       </label>
-      <div class="suggestions">
-        <strong>Try:</strong>
-        <button data-q="Translate all my financial documents in container_001 to German">Translate financials → German</button>
-        <button data-q="What are my payment terms?">Payment terms (RAG)</button>
-        <button data-q="Create an HTML dashboard from all my documents">HTML dashboard (Plan Mode)</button>
-        <button data-q="Find all documents with high-risk indemnification clauses">High-risk clauses</button>
-        <button data-q="Generate a summary report of all legal agreements with high PII exposure">Legal PII report</button>
+      <div class="actions">
+        <button id="send" type="button" class="primary-btn">
+          <span>Run</span>
+          <kbd>↵</kbd>
+        </button>
+        <span class="hint">Cmd/Ctrl + Enter to send</span>
       </div>
-      <button id="send" type="button">Send</button>
+      <div class="suggestions" role="group" aria-label="Example queries">
+        <span class="suggestions-label">Try</span>
+        <button class="chip" data-q="Translate all my financial documents in container_001 to German">Translate financials → German</button>
+        <button class="chip" data-q="What are my payment terms?">Payment terms (RAG)</button>
+        <button class="chip" data-q="Create an HTML dashboard from all my documents">HTML dashboard</button>
+        <button class="chip" data-q="Find all documents with high-risk indemnification clauses">High-risk clauses</button>
+        <button class="chip" data-q="Generate a summary report of all legal agreements with high PII exposure">Legal PII report</button>
+      </div>
     </section>
 
-    <section id="thinking">
-      <h2>Planner reasoning</h2>
-      <pre id="thinking-stream" class="stream"></pre>
+    <section class="panel reasoning" aria-labelledby="reasoning-h">
+      <h2 id="reasoning-h">Planner reasoning <span class="muted">streaming</span></h2>
+      <pre id="thinking-stream" class="terminal" aria-live="polite"></pre>
     </section>
 
-    <section id="plan">
-      <h2>Plan</h2>
-      <div id="plan-tree" class="empty">No plan yet.</div>
-    </section>
-
-    <section id="clarifications" class="hidden">
-      <h2>Plan Mode — clarifying questions</h2>
+    <section class="panel clarifications hidden" id="clarifications" aria-labelledby="clar-h">
+      <h2 id="clar-h">Plan mode — clarifying questions</h2>
       <div id="questions"></div>
     </section>
 
-    <section id="events">
-      <h2>Event log</h2>
-      <ol id="event-list"></ol>
+    <!-- ────────────────────────────────────────────────────────────────  -->
+    <!-- Right column: plan tree, final answer, artifacts.                 -->
+    <!-- ────────────────────────────────────────────────────────────────  -->
+    <section class="panel plan" aria-labelledby="plan-h">
+      <h2 id="plan-h">Plan <span class="muted" id="plan-meta"></span></h2>
+      <div id="plan-tree" class="empty">No plan yet — send a request to start.</div>
     </section>
 
-    <section id="final" class="hidden">
-      <h2>Final answer</h2>
-      <div id="final-answer"></div>
-      <div id="artifacts"></div>
+    <section class="panel final hidden" id="final" aria-labelledby="final-h">
+      <h2 id="final-h">Final answer</h2>
+      <article id="final-answer" class="markdown"></article>
+      <div class="artifacts" id="artifacts"></div>
     </section>
   </main>
 
-  <footer>
-    <small>Session: <code id="session-id">—</code></small>
-  </footer>
+  <!-- ──────────────────────────────────────────────────────────────────  -->
+  <!-- Footer: collapsible raw event log.                                  -->
+  <!-- ──────────────────────────────────────────────────────────────────  -->
+  <details class="event-drawer" id="event-drawer">
+    <summary>
+      <span>Event log</span>
+      <span class="event-count" id="event-count">0 events</span>
+    </summary>
+    <ol id="event-list" class="event-list"></ol>
+  </details>
 
   <script src="/ui-assets/app.js" defer></script>
 </body>

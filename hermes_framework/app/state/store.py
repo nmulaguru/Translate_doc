@@ -37,6 +37,19 @@ class Store:
     async def connect(self) -> None:
         self._conn = await aiosqlite.connect(self.db_path)
         await self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        # Lightweight forward-migration for databases created before these
+        # columns existed. SQLite has no IF NOT EXISTS for columns, so we
+        # try and swallow the "duplicate column" error.
+        for stmt in (
+            "ALTER TABLE sessions ADD COLUMN webhook_url TEXT",
+            "ALTER TABLE tasks ADD COLUMN checkpoint_json TEXT",
+        ):
+            try:
+                await self._conn.execute(stmt)
+            except aiosqlite.OperationalError as e:
+                # "duplicate column name" — already migrated, safe to ignore.
+                if "duplicate column" not in str(e).lower():
+                    raise
         await self._conn.commit()
 
     async def close(self) -> None:
@@ -52,8 +65,9 @@ class Store:
     # ── sessions ──────────────────────────────────────────────────────────
     async def create_session(self, session: Session) -> None:
         await self.conn.execute(
-            "INSERT INTO sessions (id, container_id, status, created_at, user_msg, final_answer) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions "
+            "(id, container_id, status, created_at, user_msg, final_answer, webhook_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 session.id,
                 session.container_id,
@@ -61,13 +75,14 @@ class Store:
                 session.created_at,
                 session.user_msg,
                 session.final_answer,
+                session.webhook_url,
             ),
         )
         await self.conn.commit()
 
     async def get_session(self, session_id: str) -> Optional[Session]:
         async with self.conn.execute(
-            "SELECT id, container_id, status, created_at, user_msg, final_answer "
+            "SELECT id, container_id, status, created_at, user_msg, final_answer, webhook_url "
             "FROM sessions WHERE id = ?",
             (session_id,),
         ) as cur:
@@ -81,6 +96,7 @@ class Store:
             created_at=row[3],
             user_msg=row[4],
             final_answer=row[5],
+            webhook_url=row[6] if len(row) > 6 else None,
         )
 
     async def update_session_status(
@@ -91,6 +107,84 @@ class Store:
             (status.value, final_answer, session_id),
         )
         await self.conn.commit()
+
+    # ── resume-on-startup helpers ─────────────────────────────────────────
+    async def find_resumable_sessions(self) -> list[str]:
+        """Find sessions that were mid-execution when the process died.
+
+        PLANNING / EXECUTING states are in-flight; anything else is terminal
+        or paused on user input. We don't auto-resume AWAITING_ANSWER because
+        the user might still answer the open question.
+        """
+        async with self.conn.execute(
+            "SELECT id FROM sessions WHERE status IN (?, ?) ORDER BY created_at ASC",
+            (SessionStatus.PLANNING.value, SessionStatus.EXECUTING.value),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [r[0] for r in rows]
+
+    async def mark_running_tasks_interrupted(self, session_id: str) -> int:
+        """Promote any RUNNING tasks for a session to INTERRUPTED.
+
+        Used on startup before re-executing. The scheduler treats
+        INTERRUPTED as resumable PENDING with the saved checkpoint intact.
+        Returns the number of tasks marked.
+        """
+        cur = await self.conn.execute(
+            "UPDATE tasks SET status = ? "
+            "WHERE status = ? AND plan_id IN (SELECT id FROM plans WHERE session_id = ?)",
+            (TaskStatus.INTERRUPTED.value, TaskStatus.RUNNING.value, session_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount or 0
+
+    async def latest_plan_for_session(self, session_id: str) -> Optional[Plan]:
+        """Return the most recent plan persisted for this session, if any.
+
+        On resume we re-execute the existing plan rather than re-running the
+        planner — its tasks (with checkpoints) are the authoritative state.
+        """
+        async with self.conn.execute(
+            "SELECT json_blob FROM plans WHERE session_id = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        plan = Plan.model_validate_json(row[0])
+        # Overlay current task statuses + checkpoints from the tasks table —
+        # plans.json_blob is a snapshot at planning time and won't reflect
+        # progress made before the crash.
+        async with self.conn.execute(
+            "SELECT id, status, attempts, output_blob, artifact_ref, error, "
+            "       started_at, ended_at, checkpoint_json "
+            "FROM tasks WHERE plan_id = ?",
+            (plan.plan_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        live = {r[0]: r for r in rows}
+        for t in plan.tasks:
+            r = live.get(t.id)
+            if not r:
+                continue
+            t.status = TaskStatus(r[1])
+            t.attempts = r[2] or 0
+            if r[3] is not None:
+                try:
+                    t.output = json.loads(r[3])
+                except json.JSONDecodeError:
+                    t.output = r[3]
+            t.artifact_ref = r[4]
+            t.error = r[5]
+            t.started_at = r[6]
+            t.ended_at = r[7]
+            if r[8] is not None:
+                try:
+                    t.checkpoint = json.loads(r[8])
+                except json.JSONDecodeError:
+                    t.checkpoint = None
+        return plan
 
     # ── plans ─────────────────────────────────────────────────────────────
     async def save_plan(self, plan: Plan) -> None:
@@ -107,8 +201,8 @@ class Store:
         await self.conn.execute(
             "INSERT OR REPLACE INTO tasks "
             "(id, plan_id, kind, title, depends_on_json, spec_json, status, attempts, "
-            " output_blob, artifact_ref, error, started_at, ended_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " output_blob, artifact_ref, error, started_at, ended_at, checkpoint_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.id,
                 plan_id,
@@ -123,11 +217,23 @@ class Store:
                 task.error,
                 task.started_at,
                 task.ended_at,
+                json.dumps(task.checkpoint, default=str) if task.checkpoint is not None else None,
             ),
         )
 
     async def update_task(self, plan_id: str, task: Task) -> None:
         await self._upsert_task(plan_id, task)
+        await self.conn.commit()
+
+    async def update_task_checkpoint(self, task_id: str, checkpoint: dict) -> None:
+        """High-frequency checkpoint persist — called after EVERY
+        ##CHECKPOINT## marker. Skips the full row rewrite for speed.
+        Without this, a crash mid-task loses the resume offset entirely.
+        """
+        await self.conn.execute(
+            "UPDATE tasks SET checkpoint_json = ? WHERE id = ?",
+            (json.dumps(checkpoint, default=str), task_id),
+        )
         await self.conn.commit()
 
     async def get_plan(self, plan_id: str) -> Optional[Plan]:

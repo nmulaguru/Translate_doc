@@ -10,6 +10,17 @@ generating Python on demand and running it in a sandbox subprocess that calls
 the MCP tools directly, streaming `##PROGRESS##` markers back to the user via
 Server-Sent Events. The planner LLM never sees more than O(1) document IDs.
 
+**LLM call count is fixed at 4** (interrogator + planner + code-gen +
+synthesizer) regardless of corpus size — that's the core scalability
+invariant. For a 1M-doc translation the agent makes ~104 MCP calls
+(100 paginated metadata fetches + 4 bulk-translate calls); the MCP server
+does the 1M actual translations internally with `Semaphore(200)`.
+
+**Survives process death.** Every `##CHECKPOINT##` marker is persisted to
+SQLite immediately. On startup the orchestrator's lifespan re-executes any
+session left in `EXECUTING` from its last checkpoint — generated code reads
+`__resume_from__` and skips already-processed pages.
+
 Full design rationale is in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
@@ -70,13 +81,20 @@ parsing) — not the LLM-dependent paths, which are exercised via the demo scrip
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/sessions` | Create session. Body: `{container_id?}`. Returns `{session_id, status}`. |
+| POST | `/v1/sessions` | Create session. Body: `{container_id?, webhook_url?}`. Returns `{session_id, status}`. |
 | POST | `/v1/sessions/{id}/messages` | Send the user message. Body: `{message, container_id?}`. Returns 202. |
 | GET | `/v1/sessions/{id}/events?cursor=N` | SSE stream of agent events. Replayable from any cursor. |
+| GET | `/v1/sessions/{id}/status` | Polling snapshot — status, task counts, progress %, latest event cursor. Cheap; use when SSE can't be held open. |
 | POST | `/v1/sessions/{id}/answer` | Answer a Plan Mode clarifying question. Body: `{question_id, answer}`. |
 | GET | `/v1/sessions/{id}` | Session snapshot + question list. |
-| GET | `/ui` | Single-page HTML viewer (vanilla JS EventSource). |
+| GET | `/artifacts/{session_id}/{file}` | Static-serves task artifacts (HTML dashboards, JSON spills). Synthesizer emits absolute URLs to this path. |
+| GET | `/ui` | Single-page HTML viewer — dark-first, markdown-rendered answers, polling fallback. |
 | GET | `/healthz` | Liveness probe. |
+
+**Optional `webhook_url`** posted on session creation: receives the final
+`session.completed` / `session.error` payload via HTTP POST when the
+session terminates. Fire-and-forget with retry, max 3 attempts. Useful for
+multi-hour jobs that outlive the user's SSE connection.
 
 ### Minimal curl example
 
@@ -255,17 +273,45 @@ hermes_framework/
    filtered builtins dict (runtime side). `python -I` and `RLIMIT_AS` were
    both removed — the former broke module loading on Python 3.11+, the latter
    killed the process at startup due to virtual address space reservation.
-   Wall-clock timeout via `asyncio.wait_for` is the enforced safety net.
+   The heartbeat watchdog (below) is the liveness backstop.
 
-7. **DAG scheduler with bounded replan.** Tasks run in topological waves with
-   concurrency cap of 8. Failed tasks retry with exponential backoff. After
-   terminal failure with downstream work remaining, the orchestrator replans
-   once (`MAX_REPLANS = 1`) with the failure + checkpoint context, then halts.
+7. **Heartbeat-based liveness, not a hard timeout.** For bulk tasks
+   (`CODE_TRANSFORM` / `BULK_TOOL_CALL`) the sandbox is killed only after
+   `sandbox_heartbeat_timeout_seconds` (default 300 s) of stdout silence —
+   not after a fixed wall-clock duration. A real 17-hour translation runs
+   to completion as long as `##PROGRESS##` or `##CHECKPOINT##` keeps firing;
+   a genuinely hung script dies in 5 minutes. The 24-hour
+   `sandbox_bulk_timeout_seconds` is just a backstop.
 
-8. **Resumable & replayable.** Every event appended to SQLite (WAL); SSE
-   clients reconnect via `?cursor=N`. Plans, tasks, and questions are
-   persisted. `##CHECKPOINT##` markers allow replanner to resume bulk jobs
-   from last known offset after timeout.
+8. **DAG scheduler with bounded replan + INTERRUPTED status.** Tasks run in
+   topological waves with concurrency cap of 8. Failed tasks retry with
+   exponential backoff. After terminal failure, the orchestrator replans
+   once (`MAX_REPLANS = 1`) with checkpoint context. A new `INTERRUPTED`
+   status marks tasks that were RUNNING when the process died; the scheduler
+   promotes them back to PENDING (preserving checkpoint) on resume.
+
+9. **Durable execution across process restarts.** Every `##CHECKPOINT##`
+   marker is persisted to `tasks.checkpoint_json` immediately (not just
+   at task end). On startup, the FastAPI lifespan calls
+   `resume_interrupted_sessions()` — any session left in EXECUTING is
+   re-executed from its last checkpoint, with full upstream artifact data
+   reloaded so downstream tasks see real data not just an inline preview.
+
+10. **Hybrid streaming UX.** Three channels for the same terminal payload:
+    SSE for live UIs, `GET /v1/sessions/{id}/status` for polling clients
+    that can't hold connections open, and optional `webhook_url` for
+    fire-on-done. Pick what fits the consumer's latency / connection model.
+
+11. **Clickable absolute artifact URLs.** The synthesizer prompt is strict
+    about markdown style (no emojis, clean tables, no backticks around URLs).
+    A post-processor (`_absolutize_artifact_paths`) rewrites any bare
+    `artifacts/...` paths to full `http://host/artifacts/...` URLs. The
+    `/artifacts/*` route static-serves the directory so users click straight
+    to the report HTML.
+
+12. **Resumable & replayable.** Every event appended to SQLite (WAL); SSE
+    clients reconnect via `?cursor=N`. Plans, tasks, questions, and
+    checkpoints are all persisted.
 
 ---
 
@@ -278,7 +324,17 @@ hermes_framework/
   not a hardened security boundary. For production, replace with E2B or
   Firecracker.
 - Single-tenant demo — one Anthropic API key, no per-request auth.
-- Windows: `resource.setrlimit` unavailable; timeout via `asyncio.wait_for`
-  is the only enforced limit.
+- Retrieval is BM25 (FTS5 `search_documents`), not vector-based. There is
+  no embedding model, no vector store. For semantic recall, add a
+  `search_documents_semantic` MCP tool backed by PgVector or Milvus.
+- Resume-on-startup recovers a single-process orchestrator from uvicorn
+  restart. For multi-process / multi-host orchestration replace the
+  in-process loop with Temporal or Argo Workflows; the state model (Store)
+  is the only seam that needs to change.
+- MCP server is single-replica in the demo compose. `Sample_FastMCP.py`
+  reads SQLite read-only so N replicas behind nginx round-robin work
+  without code changes — that's a deployment swap, not a code one.
 - Each `POST /messages` starts a fresh orchestrator run — no multi-turn
   conversation history across messages within a session.
+- Windows: `resource.setrlimit` unavailable; heartbeat watchdog is the
+  enforced liveness check.
