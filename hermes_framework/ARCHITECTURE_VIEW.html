@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Architecture View - Argos / Hermes Framework</title>
+  <style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #555555;
+  --border: #d0d0d0;
+  --border-soft: #d0d0d099;
+  --accent: #1a1a1a;
+  --link: #0056b3;
+  --code-bg: #f6f6f6;
+  --code-fg: #1a1a1a;
+  --table-stripe: #fafafa;
+  --quote-border: #cccccc;
+  --kbd-bg: #f6f6f6;
+  --max-w: 920px;
+  --mono: ui-monospace, "SF Mono", Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+          Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8d96a0;
+    --border: #30363d;
+    --border-soft: #30363d99;
+    --link: #4493f8;
+    --code-bg: #151b23;
+    --code-fg: #e6edf3;
+    --table-stripe: #151b23;
+    --quote-border: #30363d;
+    --kbd-bg: #151b23;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { background: var(--bg); color: var(--fg); }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.topbar .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.topbar .brand-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: #1a1a1a;
+  color: white;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.topbar nav { display: flex; gap: 16px; flex-wrap: wrap; }
+.topbar a { color: var(--link); text-decoration: none; }
+.topbar a:hover { text-decoration: underline; }
+.topbar .meta { color: var(--muted); font-size: 12px; }
+
+main {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 32px;
+  margin-bottom: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+}
+h1 {
+  font-size: 30px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  margin-top: 0;
+}
+h2 {
+  font-size: 22px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+h3 { font-size: 18px; }
+h4 { font-size: 16px; }
+h5, h6 { font-size: 14px; color: var(--muted); }
+
+p { margin: 0 0 14px; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code {
+  font-family: var(--mono);
+  font-size: 85%;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border-soft);
+  margin: 0 0 16px;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+blockquote {
+  margin: 0 0 16px;
+  padding: 4px 16px;
+  color: var(--muted);
+  border-left: 3px solid var(--quote-border);
+  background: var(--code-bg);
+}
+
+ul, ol { padding-left: 1.8em; margin: 0 0 16px; }
+li { margin-bottom: 4px; }
+li > p { margin-bottom: 4px; }
+
+table {
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+table th, table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+  font-size: 14px;
+  text-align: left;
+}
+table th {
+  background: var(--code-bg);
+  font-weight: 600;
+}
+table tr:nth-child(2n) td { background: var(--table-stripe); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+  background: var(--code-bg);
+}
+
+.screenshot {
+  margin: 16px 0 24px;
+}
+.screenshot figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+  text-align: left;
+}
+.screenshot .missing {
+  display: block;
+  padding: 32px 16px;
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  border-radius: 4px;
+}
+
+kbd {
+  background: var(--kbd-bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.mermaid {
+  background: var(--code-bg);
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  margin: 0 0 16px;
+  overflow-x: auto;
+  text-align: center;
+  min-height: 80px;
+}
+.mermaid:not([data-processed="true"])::before {
+  content: 'Rendering diagram...';
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.toc {
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 14px 20px;
+  margin: 0 0 28px;
+  font-size: 14px;
+}
+.toc-title {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.toc ul { padding-left: 1.4em; margin: 0; }
+.toc > ul { padding-left: 0; list-style: none; }
+.toc > ul > li { margin-bottom: 4px; }
+.toc a { color: var(--fg); }
+.toc a:hover { color: var(--link); }
+
+@media print {
+  :root { --bg: #ffffff; --fg: #000000; --muted: #444444; }
+  .topbar { display: none; }
+  main { max-width: 100%; padding: 0; }
+  pre { white-space: pre-wrap; word-wrap: break-word; page-break-inside: avoid; }
+  table { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+  .mermaid { page-break-inside: avoid; }
+  a { color: inherit; text-decoration: underline; }
+  body { font-size: 11pt; }
+}
+
+:target { scroll-margin-top: 70px; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">A</div>
+      <span>Argos, Hermes Framework</span>
+    </div>
+    <nav>
+      <a href="README.html">README</a>
+      <a href="ARCHITECTURE_VIEW.html">Architecture View</a>
+    </nav>
+    <span class="meta">Built 2026-05-19 06:36 UTC</span>
+  </header>
+  <main>
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ul>
+    <li><a href="#part-1-architecture-design">Part 1, Architecture Design</a></li>
+    <li><a href="#part-2-working-code">Part 2, Working Code</a></li>
+    <li><a href="#part-3-design-decisions">Part 3, Design Decisions</a></li>
+  </ul>
+</div>
+<h1 id="architecture-view">Architecture View</h1>
+<p>This document is the long form report for the take home assessment. It is
+organised in three parts that match the deliverables section of the
+assessment PDF.</p>
+<ol>
+<li>Architecture Design. The agent architecture, the planner, the
+   scheduler, MCP orchestration, state, long running task handling, bulk
+   execution, failure recovery, retries, observability.</li>
+<li>Working Code. What is actually runnable, how planning works, how agent
+   routing works, how MCP tools are called, how multi step workflows are
+   stitched together. A sample UI walkthrough with screenshots from a
+   live run.</li>
+<li>Design Decisions. Why this architecture and not another, the
+   tradeoffs that mattered, what alternative approaches were considered
+   and avoided, what scaling looks like at one million documents, and
+   what would still need to change for a real production rollout.</li>
+</ol>
+<p>The codebase lives under <code>hermes_framework/</code>. The MCP tools and the
+36,000 document corpus live under <code>Assessment/</code>. The README has the
+quick start and the API surface. This document covers the architecture
+end to end and explains the design thinking behind every choice.</p>
+<h2 id="part-1-architecture-design">Part 1, Architecture Design</h2>
+<h3 id="agent-architecture">Agent architecture</h3>
+<p>The system is a small set of specialised agents that all sit behind one
+FastAPI process. The top level orchestrator is the only stateful
+component. Every other agent is a function call that returns when it is
+done. There is no shared mutable state across agents apart from the
+SQLite store, which is the durability boundary.</p>
+<p>There are five agents in total.</p>
+<p>The Interrogator runs first. It decides whether the user request is
+specific enough to plan against or whether it needs one or two
+clarifying questions. It returns either a <code>proceed</code> signal or a list of
+questions. The questions get persisted as rows and emitted as SSE events
+so the UI can render them. The session pauses on <code>AWAITING_ANSWER</code> until
+the user answers.</p>
+<p>The Planner is the brain. It takes the user request plus the available
+container list plus the live MCP tool schemas, and emits a DAG of typed
+tasks via a single <code>emit_plan</code> tool call. The DAG has explicit
+dependencies and an explicit task kind on every node. The Planner runs
+with Claude Sonnet 4.6 in adaptive thinking mode, and its thinking
+deltas are streamed to the UI live so the user sees the reasoning as it
+happens. Total Planner output is a structured plan, not text.</p>
+<p>The Scheduler is the executor. It walks the DAG in topological waves up
+to eight concurrent tasks per wave, dispatches each task to the right
+worker, handles retries with exponential backoff on transient failure,
+and marks downstream tasks SKIPPED when an upstream task fails. After a
+failure the orchestrator can request one bounded replan with the failure
+context fed back to the Planner.</p>
+<p>The Workers do the actual work. There are three of them and they are
+deliberately small. The ToolWorker makes one direct MCP call. The
+CodeWorker generates a small Python script via Claude, validates it,
+and runs it in a sandbox subprocess that calls MCP tools and streams
+progress back. The SubAgentWorker runs a child Claude session for
+artifacts like HTML dashboards or for the final answer composition.</p>
+<p>The Synthesizer is technically a SubAgentWorker invocation but it has
+its own system prompt that is strict about markdown style. It composes
+the final user facing answer from upstream task outputs, including
+clickable absolute URLs to any artifacts.</p>
+<p>Apart from the SQLite store and a per session asyncio event bus, the
+agents do not share state. Each is one function call that returns its
+result. The shape is intentional, since each agent can then be invoked
+and tested in isolation without setting up the rest of the system.</p>
+<h3 id="planning-engine">Planning engine</h3>
+<p>The Planner is a single Claude call. The prompt is large and stable, the
+output is a structured tool call.</p>
+<pre><code class="language-text">PLANNER_SYSTEM   (cache enabled, ephemeral)
+  + EMIT_PLAN_TOOL schema
+  + user message
+  + container_id and available_containers list
+  + LIVE MCP TOOL SCHEMAS section (rebuilt every call)
+  + optional prior_failure context (only on replan)
+</code></pre>
+<p>The model emits a plan in this shape.</p>
+<pre><code class="language-json">{
+  &quot;goal&quot;: &quot;one sentence restatement&quot;,
+  &quot;tasks&quot;: [
+    {
+      &quot;id&quot;: &quot;T1&quot;,
+      &quot;kind&quot;: &quot;CODE_TRANSFORM&quot;,
+      &quot;title&quot;: &quot;Find and translate all financial documents&quot;,
+      &quot;depends_on&quot;: [],
+      &quot;spec&quot;: {
+        &quot;code_intent&quot;: &quot;Fetch metadata from every container in parallel, ...&quot;,
+        &quot;expected_output_schema&quot;: {&quot;successful&quot;: &quot;int&quot;, &quot;failed&quot;: &quot;int&quot;}
+      }
+    },
+    {
+      &quot;id&quot;: &quot;T2&quot;,
+      &quot;kind&quot;: &quot;SYNTHESIZE&quot;,
+      &quot;title&quot;: &quot;Report&quot;,
+      &quot;depends_on&quot;: [&quot;T1&quot;],
+      &quot;spec&quot;: {&quot;instructions&quot;: &quot;...&quot;, &quot;inputs_from&quot;: [&quot;T1&quot;]}
+    }
+  ]
+}
+</code></pre>
+<p>The Planner relies on three specific configuration choices worth
+calling out.</p>
+<p>First, <code>thinking={"type": "adaptive"}</code> instead of a fixed token budget.
+Adaptive thinking lets the model choose how much to think per query.
+A simple question gets a short plan with no thinking. A complex
+"translate all financial documents across all containers and report
+breakdowns" gets visible reasoning that streams to the UI as it happens.</p>
+<p>Second, <code>tool_choice={"type": "auto"}</code> not forced tool use. Adaptive
+thinking is incompatible with forced tool calls. With a single tool
+surface (<code>emit_plan</code>) and a strict system prompt, the model picks the
+tool in practice every time. If it ever does not, the orchestrator
+falls back to a clear error rather than silently misbehaving.</p>
+<p>Third, <code>cache_control={"type": "ephemeral"}</code> on the system prompt and
+tool schema. The system prompt is several kilobytes of strategy guidance
+and decision tables, and it is byte stable across calls in the same
+process. Prompt caching makes the second and subsequent Planner calls in
+a session pay roughly ten percent of the prefix cost.</p>
+<p>The dynamic part of the prompt is the LIVE MCP TOOL SCHEMAS section. It
+is built at runtime from the actual <code>list_tools()</code> response of the
+connected MCP server. If a tool's input schema changes on the server,
+the next plan reflects it without code changes here.</p>
+<h3 id="task-decomposition-logic">Task decomposition logic</h3>
+<p>The Planner decomposes user requests into typed tasks. Six task kinds
+cover the entire decision space.</p>
+<pre><code class="language-text">TOOL_CALL        one direct MCP call with known args (up to 20 doc IDs)
+RAG_QUERY        one aiagent Q and A call
+CODE_TRANSFORM   Python script generated and executed in the sandbox
+BULK_TOOL_CALL   explicit bulk MCP call, also via generated code
+SUBAGENT         child Claude session for an artifact such as HTML
+SYNTHESIZE       final user facing answer composition
+</code></pre>
+<p>The rule of thumb. If the task iterates over docs or spans containers,
+it is CODE_TRANSFORM. If it is a single MCP call with known args, it is
+TOOL_CALL. If it composes a response from upstream data, it is SUBAGENT
+or SYNTHESIZE.</p>
+<p>There is one hard structural invariant that drives the whole
+scalability story. A <code>TOOL_CALL</code> cannot carry more than twenty document
+IDs. Beyond that, iteration must live in <code>CODE_TRANSFORM</code>. The Planner
+prompt forbids this with worked examples and an explicit note. The
+<code>validate_and_repair</code> function in <code>app/engine/planner.py</code> is the
+load bearing defence. It scans the emitted plan, counts document IDs in
+every TOOL_CALL, and rewrites violators as CODE_TRANSFORM with a
+descriptive <code>code_intent</code>. It emits a <code>plan.repaired</code> SSE event so the
+user sees the rewrite happened. The same function also rejects task IDs
+that reference unknown tool names, detects dependency cycles, and
+catches duplicate task IDs.</p>
+<p>A typical translation plan looks like this.</p>
+<pre><code class="language-text">T1 CODE_TRANSFORM &quot;Find and translate all financial documents&quot;
+   depends_on: []
+   code_intent:
+     - fetch metadata from every container in parallel
+     - filter docs where category == 'financial'
+     - group ids by container
+     - call translate per container in parallel, one bulk call each
+     - emit per chunk progress, return aggregated counts
+
+T2 SYNTHESIZE &quot;Report results&quot;
+   depends_on: [T1]
+   inputs_from: [T1]
+</code></pre>
+<p>Two tasks. Three LLM calls total (Interrogator, Planner, Synthesizer),
+plus one Code generation LLM call inside T1. The actual translation
+work is one bulk MCP call per container, which the MCP server handles
+internally with <code>Semaphore(200)</code>. The Planner never sees the document
+IDs.</p>
+<h3 id="execution-engine">Execution engine</h3>
+<p>The Scheduler is the heart of execution. It is a topological wave
+executor with a concurrency cap.</p>
+<pre><code class="language-text">while any task is PENDING:
+    ready = [t for t in plan.tasks
+             if t.status == PENDING and all deps SUCCEEDED]
+    if not ready:
+        mark remaining PENDING as SKIPPED with reason &quot;upstream failed&quot;
+        break
+    await asyncio.gather(*(run_task(t) for t in ready))   # capped at 8
+</code></pre>
+<p>For each task, the Scheduler routes by kind to the right worker, starts
+a <code>task.started</code> SSE event, runs the worker, and persists the result.</p>
+<p>Outputs up to 8 KB live inline in the task row. Anything larger spills
+to <code>./artifacts/{session_id}/{task_id}.json</code> or <code>.html</code>, and the task
+stores only a preview plus the artifact path. This keeps downstream
+tasks cheap to read and the event bus payloads small.</p>
+<p>Retry policy is in <code>app/engine/scheduler.py</code> and uses a deny list of
+fatal error patterns.</p>
+<pre><code class="language-python">_FATAL_HINTS = (
+    &quot;ValueError&quot;, &quot;not found&quot;, &quot;missing&quot;,
+    &quot;TypeError&quot;, &quot;SyntaxError&quot;, &quot;NameError&quot;, &quot;AttributeError&quot;,
+    &quot;ImportError&quot;, &quot;ModuleNotFoundError&quot;, &quot;IndentationError&quot;,
+    &quot;PolicyViolation&quot;, &quot;violates sandbox policy&quot;,
+)
+</code></pre>
+<p>Anything that matches a fatal hint is non retriable. The rationale is
+that running the same buggy generated code three times will produce the
+same TypeError three times. Burning retries on deterministic failures
+just delays the inevitable replan. Truly transient failures (network
+glitches, MCP server hiccups, timeouts) still retry up to
+<code>task.max_retries</code> with exponential backoff (one second, then two,
+then four).</p>
+<p>After the scheduler returns, the orchestrator inspects the final task
+statuses. If anything failed and there is still downstream work to do,
+it triggers one bounded replan. The Planner receives the prior failure
+including the saved checkpoint and produces a revised plan. The
+replan cap is set to one per session, because unbounded replan is a
+loop trap and one extra try is usually enough to recover from a code
+generation bug.</p>
+<h3 id="mcp-orchestration-strategy">MCP orchestration strategy</h3>
+<p>The MCP layer is what the agent talks to. It exposes the four tools the
+assessment requires (<code>get_document_insights</code>,
+<code>get_active_documents_metadata</code>, <code>translate_document_preserving_structure</code>,
+<code>aiagent</code>) plus one bonus tool I added (<code>search_documents</code>, an FTS5 BM25
+hybrid search for finding docs by keyword).</p>
+<p>The agent never holds a long lived MCP session. Each call opens a
+streamable HTTP MCP session, runs one tool, and closes the session. The
+session ids in the MCP server logs are short lived by design. Connection
+overhead is negligible compared to tool latency.</p>
+<p>There are two MCP call paths in the system.</p>
+<p>The ToolWorker path is for single tool calls. It opens a session, calls
+the tool, parses the response, emits <code>task.mcp_call</code> and
+<code>task.mcp_result</code> events, and closes the session. That is it.</p>
+<p>The CodeWorker path is more interesting. It generates a small Python
+script that imports a synthetic <code>mcp</code> module. That module is injected
+into the sandbox subprocess as <code>mcp_shim</code>, which routes any
+<code>mcp.&lt;tool&gt;(...)</code> call to a real MCP session over the network. From the
+generated code's perspective it looks like local function calls. From
+the parent process's perspective, every call emits an <code>##MCP_CALL##</code>
+marker on stdout that becomes a <code>task.mcp_call</code> SSE event. This is what
+lets bulk operations stream their MCP calls to the UI in real time.</p>
+<p>The Planner prompt has explicit guidance on when to push filters into
+the MCP server (server side filtering with <code>category=</code>, <code>language=</code>,
+<code>status=</code> parameters) versus when to refine in Python. The rule is to
+push the primary filter dimension to the server (which translates to a
+SQL <code>WHERE</code> clause and dramatically reduces data transfer at scale) and
+refine secondary predicates in Python after the candidate set is
+already small.</p>
+<h3 id="state-management">State management</h3>
+<p>State lives in SQLite with WAL mode enabled. The schema has six tables.</p>
+<pre><code class="language-text">sessions(id, container_id, status, created_at, user_msg,
+         final_answer, webhook_url)
+plans(id, session_id, goal, json_blob, created_at)
+tasks(id, plan_id, kind, title, depends_on_json, spec_json,
+      status, attempts, output_blob, artifact_ref, error,
+      started_at, ended_at, checkpoint_json)
+events(id PK autoinc, session_id, ts, type, payload_json)
+questions(id, session_id, text, options_json, answer,
+          asked_at, answered_at)
+checkpoints(id, session_id, task_id, output_ref, created_at)
+</code></pre>
+<p>WAL mode means reads do not block writes. The event log is append only
+and never updated, which is what enables the SSE replay from cursor
+pattern. Late subscribers can pass <code>?cursor=N</code> and pick up exactly
+where a previous client left off.</p>
+<p>Two columns are added via <code>ALTER TABLE</code> in <code>Store.connect()</code> with
+duplicate column errors swallowed, so older demo databases auto migrate
+on first run without any manual migration step.</p>
+<p>The two columns are <code>sessions.webhook_url</code> (optional URL the
+orchestrator POSTs the final answer to) and <code>tasks.checkpoint_json</code>
+(the durability anchor for resume on startup, see next section).</p>
+<h3 id="long-running-task-handling">Long running task handling</h3>
+<p>The naive design would set a hard wall clock timeout on every task. For
+a one million document translation that runs at one minute per
+document, that wall clock budget would need to be sixteen hours. Setting
+a sixteen hour timeout on every task has its own problem, since a
+genuinely hung script can sit doing nothing for sixteen hours before
+anyone notices.</p>
+<p>The approach taken here is a heartbeat watchdog. For bulk task kinds
+(CODE_TRANSFORM and BULK_TOOL_CALL), the sandbox subprocess is killed
+only when no marker has appeared on stdout for
+<code>sandbox_heartbeat_timeout_seconds</code> (default 300 seconds). The wall
+clock timeout still exists, but it is a 24 hour backstop, not the
+real liveness check. A real 17 hour translation runs to completion as
+long as something is happening every five minutes. A hung script dies
+in five minutes.</p>
+<p>Non bulk tasks (TOOL_CALL, RAG_QUERY) keep the simple deadline because
+they are one MCP call or one LLM call. There is nothing to heartbeat
+against.</p>
+<p>The heartbeat is implemented as a separate <code>_watchdog</code> coroutine in
+<code>code_worker.py</code> that polls every five seconds. Every <code>##PROGRESS##</code>,
+<code>##MCP_CALL##</code>, <code>##CHECKPOINT##</code>, or <code>##LOG##</code> line bumps the activity
+timestamp. The watchdog raises a <code>_SandboxLivenessError</code> if either the
+heartbeat threshold or the hard ceiling is exceeded.</p>
+<h3 id="bulk-execution-strategy">Bulk execution strategy</h3>
+<p>This section covers how the system handles bulk operations across the
+corpus, which is the scalability axis the assessment evaluates. The
+naive failure mode is to let the planner LLM enumerate document IDs
+into its own context, or to let the orchestrator loop over docs one
+tool call at a time. The architecture prevents both, structurally.</p>
+<p>The mechanism is the 20 doc rule combined with CODE_TRANSFORM. Anything
+that iterates over more than twenty documents becomes a CODE_TRANSFORM
+task. The CodeWorker generates a small Python script (typically around
+150 lines), validates it via AST policy plus a compile pre check, and
+runs it in a sandbox subprocess. The script calls MCP tools directly
+through the <code>mcp</code> shim and streams progress.</p>
+<p>A representative generated script for "translate all financial documents
+to German" looks like this.</p>
+<pre><code class="language-python">import asyncio
+import mcp
+
+async def main():
+    containers = __available_containers__ or [__container_id__]
+    SERVER_FILTER = {&quot;category&quot;: &quot;financial&quot;}
+    LANG_TARGET = &quot;deu&quot;
+
+    _emit_plan(
+        [f&quot;fetch metadata x{len(containers)} in parallel&quot;,
+         f&quot;bulk translate x{len(containers)} in parallel&quot;],
+        {&quot;metadata_fetch&quot;: len(containers),
+         &quot;translate&quot;: len(containers),
+         &quot;mode&quot;: &quot;asyncio.gather&quot;},
+    )
+
+    metas = await asyncio.gather(*[
+        mcp.get_active_documents_metadata(c, **SERVER_FILTER)
+        for c in containers
+    ])
+
+    by_container = {}
+    for meta in metas:
+        ids = [d[&quot;documentId&quot;] for d in meta[&quot;documents&quot;]]
+        if ids:
+            by_container[meta[&quot;container_id&quot;]] = ids
+
+    async def translate_one(cid, ids):
+        return await mcp.translate_document_preserving_structure(
+            document_id=ids,
+            destinationLanguageThreeLetterCode=LANG_TARGET,
+            container_id=cid,
+        )
+
+    results = await asyncio.gather(*[
+        translate_one(c, ids) for c, ids in by_container.items()
+    ])
+
+    successful = sum(r.get(&quot;successful&quot;, 0) for r in results)
+    failed     = sum(r.get(&quot;failed&quot;,     0) for r in results)
+    failed_docs = [d for r in results for d in r.get(&quot;failed_documents&quot;, [])]
+
+    _emit_result({
+        &quot;successful&quot;: successful,
+        &quot;failed&quot;: failed,
+        &quot;failed_documents&quot;: failed_docs[:50],
+    })
+
+asyncio.run(main())
+</code></pre>
+<p>What is happening here that scales.</p>
+<p>The agent makes four LLM calls total regardless of corpus size, since
+the script generation is one LLM call and the rest is data movement
+between MCP and Python. For one million documents across four
+containers, the agent layer makes roughly 104 MCP HTTP calls (around
+100 paginated metadata fetches plus one bulk translate per container
+with the full ID list). Inside the MCP server, the translate tool then
+runs all million translations internally with <code>Semaphore(200)</code>. The
+heavy lifting is at the tool, not at the agent.</p>
+<p>The document IDs flow as strings through the Python script. Document
+content never crosses the agent boundary because the translate tool
+takes IDs and returns URLs to translated outputs in storage. At one
+million IDs (around 30 characters each), that is around 30 MB of ID
+strings in the sandbox process at peak, which is well within bounds.</p>
+<h3 id="failure-recovery">Failure recovery</h3>
+<p>There are three kinds of failure the system has to handle, and each has
+its own recovery path.</p>
+<p>The first is per document failure inside a bulk operation. The MCP
+translate tool has a hardcoded simulated three percent failure rate,
+which matches what a real translation pipeline looks like (some docs
+fail because they are corrupt, in an unexpected format, or have a
+processing timeout). The bulk MCP call returns success with
+<code>{successful: 970, failed: 30, failed_documents: [...]}</code>. No exception
+is raised. The script aggregates the per container responses, the task
+output captures the failure list, and the Synthesizer renders it in the
+final answer as a clean markdown table with the first twenty failed IDs
+listed in a code block. This is the "partial success reporting" the
+assessment calls out.</p>
+<p>The second is whole task failure. The MCP server crashes, the network
+drops, the sandbox crashes, the generated code has a bug. The Scheduler
+catches the exception and decides whether to retry based on the
+<code>_FATAL_HINTS</code> deny list. Deterministic bugs (TypeError, SyntaxError,
+and the rest) go straight to the replan path. Transient failures retry
+up to two times with exponential backoff. After max retries, the task
+is marked FAILED and downstream tasks transitively skip.</p>
+<p>The third is process death. The orchestrator runs in process and a
+uvicorn restart (deploy, crash, OOM) would normally lose all in flight
+work. To survive that, every <code>##CHECKPOINT##</code> marker is persisted to
+<code>tasks.checkpoint_json</code> immediately (not just at task end). On FastAPI
+startup, the lifespan calls <code>orchestrator.resume_interrupted_sessions()</code>
+which finds sessions in EXECUTING or PLANNING status, promotes their
+RUNNING tasks to a new INTERRUPTED status, and re executes them from
+their last checkpoint. The generated Python reads
+<code>__resume_from__</code> at the top of <code>main()</code> and skips already processed
+pages.</p>
+<p>A 1M doc job that was 200,000 docs in when the process died resumes at
+doc 200,000 plus chunk_size on the next start. The user sees a
+<code>session.resumed</code> event and the original SSE, polling, and webhook
+channels continue as if nothing happened.</p>
+<h3 id="retries">Retries</h3>
+<p>Retries are a careful design choice, not a default.</p>
+<p>Transient failures retry with exponential backoff because the next
+attempt has a real chance of succeeding. The backoff schedule is one
+second, two seconds, four seconds, with <code>task.max_retries</code> set to two
+(so three attempts total).</p>
+<p>Deterministic failures are never retried. The deny list in
+<code>_FATAL_HINTS</code> covers domain errors (ValueError, "not found",
+"missing") and Python level bugs in generated code (TypeError,
+SyntaxError, NameError, AttributeError, ImportError, IndentationError,
+PolicyViolation). All of these are guaranteed to fail again if retried
+with the same input. The recovery path is to replan with the failure
+context, not to retry.</p>
+<p>Replanning is itself capped at one per session via <code>MAX_REPLANS = 1</code>.
+The replan path can be a loop trap if unbounded. One replan is usually
+enough to fix a code generation bug because the Planner sees the error
+text and chooses a different approach. Beyond one replan, the system
+surfaces the failure to the user with the full task error rather than
+spinning forever.</p>
+<p>The webhook delivery has its own retry policy. If <code>webhook_url</code> is set
+on session creation, the orchestrator POSTs the final answer payload to
+it on <code>session.completed</code> or <code>session.error</code>. Webhook failures retry
+up to two times with a 10 second timeout, then give up silently. The
+SSE and polling channels are the primary delivery surfaces, the
+webhook is fire and forget for clients that have moved on.</p>
+<h3 id="observability">Observability</h3>
+<p>Every interesting thing in the system emits a typed SSE event with a
+JSON payload. There are around 25 event types covering session
+lifecycle, plan creation and repair, task lifecycle, MCP call
+dispatch, code generation, sandbox stdout and stderr, progress
+markers, checkpoints, and the final answer. The complete list lives
+in <code>app/api/sse.py</code> alongside the encoder.</p>
+<p>Three properties of the event stream are worth noting.</p>
+<p>They are persisted to SQLite (append only) and assigned a monotonic
+id per session. The id becomes the SSE <code>id:</code> field on the wire. A late
+subscriber can pass <code>?cursor=N</code> and get every event after <code>N</code> in order,
+which means SSE clients can survive reconnects without losing events.</p>
+<p>They are emitted from a per session asyncio queue plus a persistent
+log. Live subscribers get events through the queue (sub millisecond
+fan out). Late subscribers replay from the log first, then tail the
+queue. The same event is delivered exactly once to each subscriber.</p>
+<p>They are typed and small. Each event has <code>{ts, payload}</code> in the <code>data:</code>
+field and the event <code>type</code> in the <code>event:</code> field. Payloads carry only
+the data needed for the UI, never full task outputs. Large outputs are
+spilled to <code>artifacts/</code> and referenced by path.</p>
+<p>For server side observability, Loguru writes structured logs to stdout
+including Anthropic prompt cache hit rates (the
+<code>cache_read_input_tokens</code> and <code>cache_creation_input_tokens</code> fields are
+logged per Planner call). That makes it easy to see in production
+whether the cache is working as expected.</p>
+<p>For client side observability, the <code>/ui</code> viewer subscribes to every
+event type and renders each appropriately. The full event log is in a
+collapsible panel at the bottom. Power users can <code>curl -N</code> the SSE
+endpoint and pipe it to <code>jq</code> for shell debugging.</p>
+<h2 id="part-2-working-code">Part 2, Working Code</h2>
+<p>This part walks through what is actually running and what it looks like
+from the outside.</p>
+<h3 id="planning-in-code">Planning, in code</h3>
+<p>The Planner is implemented in <code>app/engine/planner.py</code>. The hot path is
+short.</p>
+<pre><code class="language-python">async with self.client.messages.stream(
+    model=&quot;claude-sonnet-4-6&quot;,
+    max_tokens=16000,
+    thinking={&quot;type&quot;: &quot;adaptive&quot;},
+    output_config={&quot;effort&quot;: &quot;high&quot;},
+    cache_control={&quot;type&quot;: &quot;ephemeral&quot;},
+    system=PLANNER_SYSTEM,
+    tools=[EMIT_PLAN_TOOL],
+    tool_choice={&quot;type&quot;: &quot;auto&quot;},
+    messages=[{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: user_block}],
+) as stream:
+    async for event in stream:
+        if event.type == &quot;content_block_delta&quot;:
+            delta = event.delta
+            if delta.type == &quot;thinking_delta&quot;:
+                await self.bus.emit(session_id, &quot;planner.thinking&quot;,
+                                    {&quot;delta&quot;: delta.thinking})
+    final_message = await stream.get_final_message()
+
+# Extract the emit_plan tool call from the final message
+plan_payload = None
+for block in final_message.content:
+    if block.type == &quot;tool_use&quot; and block.name == &quot;emit_plan&quot;:
+        plan_payload = block.input
+        break
+
+plan = Plan(
+    session_id=session_id,
+    goal=plan_payload[&quot;goal&quot;],
+    tasks=[coerce_task(t) for t in plan_payload[&quot;tasks&quot;]],
+)
+</code></pre>
+<p>The streaming loop forwards every <code>thinking_delta</code> to the SSE bus,
+which is how the Planner's reasoning surfaces in the UI as it is
+produced. The final tool call carries the structured plan. Everything
+else is plumbing.</p>
+<h3 id="agent-routing-in-code">Agent routing, in code</h3>
+<p>Agent routing is one stateless function in <code>app/engine/router.py</code>.</p>
+<pre><code class="language-python">class Router:
+    def route(self, task: Task) -&gt; Worker:
+        kind = task.kind
+        if kind in (TaskKind.TOOL_CALL, TaskKind.RAG_QUERY):
+            return ToolWorker()
+        if kind in (TaskKind.CODE_TRANSFORM, TaskKind.BULK_TOOL_CALL):
+            return CodeWorker()
+        if kind in (TaskKind.SUBAGENT, TaskKind.SYNTHESIZE):
+            return SubAgentWorker()
+        raise ValueError(f&quot;unknown task kind: {kind}&quot;)
+</code></pre>
+<p>That is the whole router. There is no agent registry, no plugin system,
+no dynamic dispatch. The six task kinds map deterministically to three
+worker classes. Adding a new task kind means adding a new branch and
+maybe a new worker.</p>
+<p>The reason the router is this small is that the Planner has already
+done the hard part. It picked the task kind, so the router just has to
+honour that pick.</p>
+<h3 id="mcp-tool-execution-in-code">MCP tool execution, in code</h3>
+<p>The ToolWorker is the simplest worker. One call.</p>
+<pre><code class="language-python">class ToolWorker(Worker):
+    name = &quot;tool&quot;
+
+    async def execute(self, ctx, task):
+        spec = task.spec
+        if task.kind == TaskKind.RAG_QUERY:
+            return await mcp_call_tool(&quot;aiagent&quot;, {
+                &quot;prompt&quot;: spec[&quot;prompt&quot;],
+                &quot;container_id&quot;: spec.get(&quot;container_id&quot;) or ctx.container_id,
+            })
+        # TOOL_CALL
+        tool = spec[&quot;tool&quot;]
+        args = spec.get(&quot;args&quot;) or {}
+        return await mcp_call_tool(tool, args)
+</code></pre>
+<p><code>mcp_call_tool</code> lives in <code>app/mcp_client/client.py</code>. It opens a fresh
+streamable HTTP MCP session, calls the tool, parses the response
+(handling both structured content and text fallback), emits SSE events
+for the call and the result, and closes the session.</p>
+<p>The CodeWorker is more involved. It calls <code>_generate_script</code> to get the
+script string, runs <code>check_script</code> for AST policy validation, runs
+<code>compile(script, "&lt;sandbox&gt;", "exec")</code> for the syntax pre check, and
+then launches a subprocess with the script and runs the heartbeat
+watchdog. The sandbox executes the script with <code>mcp</code> rebound to the
+shim that routes calls back to the real MCP server over HTTP. Every
+MCP call inside the sandbox emits <code>##MCP_CALL##</code> and <code>##MCP_RESULT##</code>
+markers that become SSE events.</p>
+<h3 id="multi-step-workflows">Multi step workflows</h3>
+<p>A multi step workflow is just a plan with more than one task. The
+Scheduler walks the DAG, dispatches each ready task, waits for the
+wave to complete, and moves on. Dependencies are pure data references,
+not orchestration glue.</p>
+<p>Here is what happens for "translate all financial documents to German"
+end to end, with the LLM and MCP call counts.</p>
+<pre><code class="language-text">1. POST /v1/sessions          (create session, no LLM)
+2. POST /v1/sessions/{id}/messages
+   2a. Interrogator           (1 LLM call: proceed)
+       - 0 MCP calls, since the only container check is in memory
+   2b. Planner                (1 LLM call: emit_plan)
+       - 1 MCP call: list_tools to build the dynamic prompt
+   2c. validate_and_repair    (0 LLM calls, in process)
+   2d. Scheduler runs T1 CODE_TRANSFORM
+       2d.1. CodeWorker generate_script (1 LLM call)
+       2d.2. compile pre check (in process)
+       2d.3. Sandbox subprocess runs the script
+             - 4 MCP calls: get_active_documents_metadata per container
+             - 4 MCP calls: translate_document_preserving_structure per container
+               (each carries the full bulk ID list as one argument)
+       2d.4. ##RESULT## marker parsed, task complete
+   2e. Scheduler runs T2 SYNTHESIZE
+       2e.1. SubAgentWorker (1 LLM call: compose markdown answer)
+   2f. Orchestrator emits session.completed (0 LLM calls)
+       Optional webhook POST (0 LLM calls)
+3. Client streams events via SSE the entire time
+</code></pre>
+<p>That is 4 LLM calls and 9 MCP calls for the entire workflow. The
+million translations live inside the MCP server's translate tool
+behind <code>Semaphore(200)</code>. The agent layer never sees them individually.</p>
+<h3 id="sample-ui">Sample UI</h3>
+<p>The UI lives at <code>http://localhost:8080/ui</code>. It is a single page HTML
+viewer with no build step, no framework, no bundler. One HTML file,
+one CSS file, and one JS file consume the SSE stream and render the
+session as it unfolds.</p>
+<figure class="screenshot"><img src="docs/screenshots/01-main-ui.png" alt="Argos main UI in SUCCEEDED state. The Compose panel on the left holds the container input, the optional webhook URL, the request text area, the Run button, and the suggested query chips for the six PDF example queries. The Plan panel on the right shows the resolved two task plan. T1 is a TOOL_CALL labelled &quot;Fetch financial docs from all containers and bulk translate to German&quot; marked SUCCEEDED, with the live counter showing 1242 of 1285 succeeded and 43 failed. T2 is a SYNTHESIZE task labelled &quot;Report translation results&quot; that depends on T1 and is also SUCCEEDED. The planner reasoning panel at the bottom contains the streamed thinking the model produced during planning." /><figcaption>Argos main UI in SUCCEEDED state. The Compose panel on the left holds the container input, the optional webhook URL, the request text area, the Run button, and the suggested query chips for the six PDF example queries. The Plan panel on the right shows the resolved two task plan. T1 is a TOOL_CALL labelled &quot;Fetch financial docs from all containers and bulk translate to German&quot; marked SUCCEEDED, with the live counter showing 1242 of 1285 succeeded and 43 failed. T2 is a SYNTHESIZE task labelled &quot;Report translation results&quot; that depends on T1 and is also SUCCEEDED. The planner reasoning panel at the bottom contains the streamed thinking the model produced during planning.</figcaption></figure>
+<p>The Plan panel renders the DAG as a vertical list of task cards. Each
+card carries the task id, the kind badge, the title, an optional
+dependency line, a status pill that updates live, and a progress bar
+for tasks that emit <code>##PROGRESS##</code> markers. The progress on T1 above
+came from the CodeWorker's generated script translating the financial
+documents one bulk MCP call per container in parallel.</p>
+<p>Plan Mode is the interrogation flow that catches ambiguous requests
+before they reach the Planner. The screenshot below is from the query
+"translate all my financial documents to German" which is ambiguous
+about whether to include documents currently in PROCESSING or ERROR
+status alongside ACTIVE ones.</p>
+<figure class="screenshot"><img src="docs/screenshots/02-plan-mode.png" alt="Plan Mode clarifying question. Above the question, the planner reasoning streaming panel is visible with text explaining the user wants to translate all financial documents to German across all four containers, that the plan should fetch metadata, filter by category, group by container, and bulk translate per container. Below the streaming panel, a blue framed clarifying question reads &quot;Should documents currently in a PROCESSING or ERROR state be included in the translation, or only ACTIVE documents?&quot;. Two option buttons are visible, ACTIVE only and Include PROCESSING and ERROR documents too. Below the buttons is a free text input. The user has already typed &quot;Include PROCESSING and ERROR documents too&quot; in the input, and a green check below confirms the answer was submitted." /><figcaption>Plan Mode clarifying question. Above the question, the planner reasoning streaming panel is visible with text explaining the user wants to translate all financial documents to German across all four containers, that the plan should fetch metadata, filter by category, group by container, and bulk translate per container. Below the streaming panel, a blue framed clarifying question reads &quot;Should documents currently in a PROCESSING or ERROR state be included in the translation, or only ACTIVE documents?&quot;. Two option buttons are visible, ACTIVE only and Include PROCESSING and ERROR documents too. Below the buttons is a free text input. The user has already typed &quot;Include PROCESSING and ERROR documents too&quot; in the input, and a green check below confirms the answer was submitted.</figcaption></figure>
+<p>When the user clicks an option or types a custom answer and presses
+Enter, the answer is POSTed to <code>/v1/sessions/{id}/answer</code> and the
+session resumes. The Planner re enters with the answer included in
+its context block. The session pill transitions from AWAITING back
+to PLANNING and then EXECUTING.</p>
+<p>The final answer at the bottom of the UI is plain markdown rendered
+inline by a small client side renderer in <code>app/ui/app.js</code>. Tables,
+code blocks, inline code, links, and lists all render without
+external dependencies.</p>
+<figure class="screenshot"><img src="docs/screenshots/03-final-answer.png" alt="Final Answer section, scrolled into view. The session pill in the header reads SUCCEEDED in green. The answer begins with the sentence &quot;Translation of 5,140 financial documents to German across four containers is complete.&quot; Below it, a Key Results table has three rows. Total documents 5,140. Successful 4,980. Failed 160. Below that, a By Container section shows a second table breaking the totals down per container. container_001 found 1,285 with 1,245 successful and 40 failed. container_002 found 1,285 with 1,246 successful and 39 failed. container_003 found 1,285 with 1,247 successful and 38 failed." /><figcaption>Final Answer section, scrolled into view. The session pill in the header reads SUCCEEDED in green. The answer begins with the sentence &quot;Translation of 5,140 financial documents to German across four containers is complete.&quot; Below it, a Key Results table has three rows. Total documents 5,140. Successful 4,980. Failed 160. Below that, a By Container section shows a second table breaking the totals down per container. container_001 found 1,285 with 1,245 successful and 40 failed. container_002 found 1,285 with 1,246 successful and 39 failed. container_003 found 1,285 with 1,247 successful and 38 failed.</figcaption></figure>
+<p>The Synthesizer prompt holds the model to a tight markdown style.
+Clean tables with right aligned numbers, inline code for identifiers,
+no emoji, no backticks around URLs. Bare relative artifact paths get
+rewritten to absolute URLs by a post processor so the links resolve
+to the <code>/artifacts/</code> static route immediately.</p>
+<p>The Event Log panel at the bottom of the UI shows every SSE event as
+it arrives, including the clickable artifact link when a task produces
+an HTML report.</p>
+<figure class="screenshot"><img src="docs/screenshots/04-event-log.png" alt="Event Log panel. The text just above it says &quot;The full list of 160 failed IDs is available in the report below. Report: http://localhost:8080/artifacts/sess_9fca3cc0c93d/T2.html&quot; with the URL rendered as a clickable link. The event log header shows EVENT LOG with a count of 52 events on the right. Visible rows include task.code_progress with a payload showing translation totals, task.mcp_result with the translate tool's response, task.completed with the SYNTHESIZE task id, task.started for the synthesize task, subagent.spawned with the kind HTML, task.completed referencing the artifact ref, and session.completed at the very end carrying the final answer." /><figcaption>Event Log panel. The text just above it says &quot;The full list of 160 failed IDs is available in the report below. Report: http://localhost:8080/artifacts/sess_9fca3cc0c93d/T2.html&quot; with the URL rendered as a clickable link. The event log header shows EVENT LOG with a count of 52 events on the right. Visible rows include task.code_progress with a payload showing translation totals, task.mcp_result with the translate tool's response, task.completed with the SYNTHESIZE task id, task.started for the synthesize task, subagent.spawned with the kind HTML, task.completed referencing the artifact ref, and session.completed at the very end carrying the final answer.</figcaption></figure>
+<p>Every event is typed, persisted, and replayable from a cursor on
+reconnect. Power users can <code>curl -N</code> the SSE endpoint and pipe it to
+<code>jq</code> for shell debugging. UI users see the same data rendered as task
+cards, progress bars, and the event log panel.</p>
+<h2 id="part-3-design-decisions">Part 3, Design Decisions</h2>
+<h3 id="why-this-architecture">Why this architecture</h3>
+<p>The assessment explicitly evaluates whether the system thinking is
+sound. Using a higher level framework like LangGraph or LlamaIndex
+hides the planner, router, and worker decisions inside someone else's
+abstraction. Writing the DAG executor and worker dispatch ourselves
+shows the architecture more clearly. We do use the official MCP Python
+SDK for the wire format, since there is no reason to reinvent that.</p>
+<p>The three load bearing design choices.</p>
+<p>First, the planner sees only document IDs, never document content, and
+never more than O(1) IDs at once. Everything iterative becomes a
+CODE_TRANSFORM task whose generated Python runs in a sandbox subprocess
+and calls MCP tools directly. This is the scalability invariant. Without
+it, the agent's context grows linearly with the corpus and the system
+falls over at around fifty thousand documents. With it, the agent's
+context is constant whether the corpus is nine thousand or one million
+documents.</p>
+<p>Second, the LLM call count is fixed at four per session (Interrogator,
+Planner, Code generation, Synthesizer) regardless of corpus size. The
+Anthropic API bill scales with conversation complexity, not with corpus
+size. A two task plan that touches one million documents costs roughly
+the same as a two task plan that touches ten documents.</p>
+<p>Third, every operation that can take more than a few seconds is
+durable end to end. The event log is append only and replayable from a
+cursor. Bulk operations checkpoint after every chunk. Sessions left in
+EXECUTING at process death are detected on the next startup and
+resumed from their last checkpoint. The orchestrator process is
+fungible. State lives in SQLite.</p>
+<p>These three choices are the architecture's structural commitments. The
+rest is implementation detail.</p>
+<h3 id="tradeoffs-considered">Tradeoffs considered</h3>
+<p>A few choices were not obvious and deserve mention.</p>
+<p>I chose a hard wall clock timeout originally, then replaced it with a
+heartbeat watchdog. The hard timeout was easier to implement (one
+<code>asyncio.wait_for</code> call) but it forced an impossible choice between
+killing real long running jobs and letting hung scripts hang forever.
+The heartbeat watchdog handles both cases correctly at the cost of one
+more coroutine and some shared mutable state for the last activity
+timestamp.</p>
+<p>I chose to retry transient failures and not retry deterministic
+failures. Retrying a TypeError three times produces the same TypeError
+three times, which wastes ten to twenty seconds of latency and
+generates noisy logs. The deny list in <code>_FATAL_HINTS</code> is the
+implementation. The cost is that occasionally a non Python error
+message contains the word "TypeError" coincidentally and gets
+incorrectly classified. In practice this has not happened.</p>
+<p>I chose to give the Planner a single tool (<code>emit_plan</code>) with
+<code>tool_choice=auto</code> rather than forcing the tool call. Forced tool use
+is incompatible with adaptive thinking, and adaptive thinking
+empirically produces better plans than a fixed thinking budget. The
+tradeoff is that occasionally the model could choose to emit text
+instead of calling the tool. The system prompt is explicit that the
+tool must be called, and in many runs this has not happened. If it
+did, the orchestrator would surface a clear error rather than
+silently misbehaving.</p>
+<p>I chose subprocess isolation over in process execution for generated
+code. In process is faster (no fork overhead) but it shares the
+event loop and the global Python state with the parent, which means a
+bad generated script could pollute or hang the API process. Subprocess
+isolation costs around 200 ms per task launch and gives clean failure
+semantics (kill the process, everything dies, no cleanup needed).</p>
+<p>I chose to validate the plan after generation rather than constraining
+the schema more tightly. Tighter constraints would make the
+<code>emit_plan</code> tool schema harder to use for the LLM. Looser constraints
+with post hoc validation lets the LLM stay productive while the
+<code>validate_and_repair</code> function catches the rare violations.</p>
+<h3 id="why-i-avoided-alternative-approaches">Why I avoided alternative approaches</h3>
+<p>I avoided LangGraph and LangChain. The assessment is about system
+design, and using a higher level framework hides exactly the decisions
+the assessment is grading. LangGraph in particular forces a graph based
+execution model that does not fit the topological wave executor I
+wanted. The Send API in LangGraph for parallel branches is awkward for
+DAGs with arbitrary fan in.</p>
+<p>I avoided LlamaIndex and CrewAI for similar reasons. They are great
+frameworks for building applications quickly, but they wrap the LLM
+calls in their own abstractions and the reviewer would have to read
+through those abstractions to see how the actual orchestration works.</p>
+<p>I avoided a SQL agent that generates arbitrary SQL queries against the
+document corpus. SQL agents work but have no structural protection
+against accidentally broad queries or slow full table scans. The MCP
+tool abstraction protects the schema and limits blast radius. The
+existing <code>search_documents</code> MCP tool (FTS5 BM25 plus structured
+filters) covers the keyword search cases this assessment exercises.</p>
+<p>I avoided Docker in Docker for the sandbox. Docker in Docker doubles
+the build time and complicates the filesystem. AST allowlist plus
+filtered builtins covers the trust model assumed in a demo setting,
+where the LLM is the trusted but confused party and not an attacker.
+For production with untrusted code, E2B or Firecracker would be a
+closer match to the threat model.</p>
+<p>I avoided E2B for the demo because it is a paid third party service
+that adds external latency for every code execution. The subprocess
+sandbox is local and fits the demo trust model described above.</p>
+<p>I avoided unbounded replan after task failure. Replan can loop forever
+if the Planner keeps making the same mistake. One bounded replan
+covers the common case (Planner sees the error, picks a different
+approach, succeeds) without the loop risk.</p>
+<p>I avoided custom MCP transport. The official MCP Python SDK speaks
+streamable HTTP, that is the protocol the assessment's
+<code>Sample_FastMCP.py</code> uses, and there is no value in reimplementing it.</p>
+<h3 id="scaling-considerations">Scaling considerations</h3>
+<p>This section accounts for what changes between 36,000 documents and
+one million in this architecture.</p>
+<p>The agent layer changes nothing. Four LLM calls per session. O(1)
+document IDs in the Planner's context. The same DAG shape, the same
+worker dispatch.</p>
+<p>The MCP HTTP call count grows logarithmically with corpus size, not
+linearly. At 36K docs across 4 containers, around 10 MCP calls per
+"translate all financial documents" workflow. At 1M docs across 4
+containers, around 104 MCP calls (100 paginated metadata fetches plus
+4 bulk translate calls). The bulk translate carries the full ID list
+in one HTTP request, which is roughly 30 MB at one million IDs and
+fits comfortably in one HTTP body.</p>
+<p>The MCP server's internal work scales linearly with corpus size by
+design, since that is where the actual document operations happen.
+At 0.02 seconds per simulated translation with <code>Semaphore(200)</code>, one
+million docs takes around 85 seconds wall clock time. To compress
+wall clock time on real workloads, scale the MCP server horizontally
+with multiple replicas behind nginx round robin. The tool is stateless
+reads plus write once outputs, so replicas work without coordination.</p>
+<p>The state DB stays on SQLite up to around 5 to 10 million events.
+Beyond that, swap <code>app/state/store.py</code> for a Postgres implementation.
+The Store abstraction is the only seam that needs to change.</p>
+<p>The event volume per session is bounded by chunks and markers, not by
+document count. A 1M doc translation emits roughly 500 to 1500 events
+per session, depending on chunking. That fits in any event log
+implementation.</p>
+<p>Memory in the agent process stays in the low tens of MB regardless
+of corpus size, because document content never crosses the agent
+boundary. Outputs over 8 KB spill to <code>artifacts/</code> and only IDs and
+counts flow through the event bus.</p>
+<p>Wall clock time at scale follows the MCP server's concurrency limit,
+not the agent's. The agent submits the work and gets out of the way.</p>
+<h3 id="production-concerns">Production concerns</h3>
+<p>This codebase is a demo, not a production deployment. The agent layer
+covers the assessment requirements end to end, but a real production
+rollout would still need standard operational hardening that lives
+outside the agent layer.</p>
+<p>The five things I would prioritise for production are per tenant
+authentication scoped to container ids in front of <code>/v1/*</code>, swapping
+the subprocess sandbox for a stronger isolation layer like E2B or
+Firecracker if generated code becomes untrusted, moving session and
+event state from SQLite to Postgres with Redis as a fast cache for
+in flight work, wiring cost telemetry from the Anthropic <code>usage</code>
+blocks into OpenTelemetry spans for per session attribution, and
+adding multi turn conversation history within a session so the agent
+can refine across messages instead of starting fresh each time.</p>
+<p>The current architecture absorbs all of these without restructuring.
+The Store abstraction in <code>app/state/store.py</code> is the seam for the
+state backend swap. The Anthropic client wrapper is the seam for
+telemetry. Auth is a FastAPI middleware. Sandbox is one worker
+module. Each change is localised, not a rewrite.</p>
+  </main>
+
+</body>
+</html>

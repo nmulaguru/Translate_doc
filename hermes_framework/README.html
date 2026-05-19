@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>README - Argos / Hermes Framework</title>
+  <style>
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #555555;
+  --border: #d0d0d0;
+  --border-soft: #d0d0d099;
+  --accent: #1a1a1a;
+  --link: #0056b3;
+  --code-bg: #f6f6f6;
+  --code-fg: #1a1a1a;
+  --table-stripe: #fafafa;
+  --quote-border: #cccccc;
+  --kbd-bg: #f6f6f6;
+  --max-w: 920px;
+  --mono: ui-monospace, "SF Mono", Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+          Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8d96a0;
+    --border: #30363d;
+    --border-soft: #30363d99;
+    --link: #4493f8;
+    --code-bg: #151b23;
+    --code-fg: #e6edf3;
+    --table-stripe: #151b23;
+    --quote-border: #30363d;
+    --kbd-bg: #151b23;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { background: var(--bg); color: var(--fg); }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.topbar .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.topbar .brand-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: #1a1a1a;
+  color: white;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.topbar nav { display: flex; gap: 16px; flex-wrap: wrap; }
+.topbar a { color: var(--link); text-decoration: none; }
+.topbar a:hover { text-decoration: underline; }
+.topbar .meta { color: var(--muted); font-size: 12px; }
+
+main {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 32px;
+  margin-bottom: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+}
+h1 {
+  font-size: 30px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  margin-top: 0;
+}
+h2 {
+  font-size: 22px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+h3 { font-size: 18px; }
+h4 { font-size: 16px; }
+h5, h6 { font-size: 14px; color: var(--muted); }
+
+p { margin: 0 0 14px; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code {
+  font-family: var(--mono);
+  font-size: 85%;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border-soft);
+  margin: 0 0 16px;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+blockquote {
+  margin: 0 0 16px;
+  padding: 4px 16px;
+  color: var(--muted);
+  border-left: 3px solid var(--quote-border);
+  background: var(--code-bg);
+}
+
+ul, ol { padding-left: 1.8em; margin: 0 0 16px; }
+li { margin-bottom: 4px; }
+li > p { margin-bottom: 4px; }
+
+table {
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+table th, table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+  font-size: 14px;
+  text-align: left;
+}
+table th {
+  background: var(--code-bg);
+  font-weight: 600;
+}
+table tr:nth-child(2n) td { background: var(--table-stripe); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+  background: var(--code-bg);
+}
+
+.screenshot {
+  margin: 16px 0 24px;
+}
+.screenshot figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+  text-align: left;
+}
+.screenshot .missing {
+  display: block;
+  padding: 32px 16px;
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  border-radius: 4px;
+}
+
+kbd {
+  background: var(--kbd-bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.mermaid {
+  background: var(--code-bg);
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  margin: 0 0 16px;
+  overflow-x: auto;
+  text-align: center;
+  min-height: 80px;
+}
+.mermaid:not([data-processed="true"])::before {
+  content: 'Rendering diagram...';
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.toc {
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 14px 20px;
+  margin: 0 0 28px;
+  font-size: 14px;
+}
+.toc-title {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.toc ul { padding-left: 1.4em; margin: 0; }
+.toc > ul { padding-left: 0; list-style: none; }
+.toc > ul > li { margin-bottom: 4px; }
+.toc a { color: var(--fg); }
+.toc a:hover { color: var(--link); }
+
+@media print {
+  :root { --bg: #ffffff; --fg: #000000; --muted: #444444; }
+  .topbar { display: none; }
+  main { max-width: 100%; padding: 0; }
+  pre { white-space: pre-wrap; word-wrap: break-word; page-break-inside: avoid; }
+  table { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+  .mermaid { page-break-inside: avoid; }
+  a { color: inherit; text-decoration: underline; }
+  body { font-size: 11pt; }
+}
+
+:target { scroll-margin-top: 70px; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">A</div>
+      <span>Argos, Hermes Framework</span>
+    </div>
+    <nav>
+      <a href="README.html">README</a>
+      <a href="ARCHITECTURE_VIEW.html">Architecture View</a>
+    </nav>
+    <span class="meta">Built 2026-05-19 06:36 UTC</span>
+  </header>
+  <main>
+<div class="toc">
+  <div class="toc-title">Contents</div>
+  <ul>
+    <li><a href="#quick-start">Quick start</a></li>
+    <li><a href="#api-surface">API surface</a></li>
+    <li><a href="#demo-queries">Demo queries</a></li>
+    <li><a href="#execution-flow">Execution flow</a></li>
+    <li><a href="#observability">Observability</a></li>
+    <li><a href="#layout">Layout</a></li>
+    <li><a href="#notable-design-choices">Notable design choices</a></li>
+    <li><a href="#known-limitations">Known limitations</a></li>
+  </ul>
+</div>
+<h1 id="hermes-framework">Hermes Framework</h1>
+<p>API-driven, Hermes/OpenCode/DeepAgents-style multi-agent agentic framework that
+wraps the MCP tools in <a href="../Assessment/Sample_FastMCP.py"><code>Assessment/Sample_FastMCP.py</code></a>
+and intelligently solves user queries against the enterprise document corpus
+in <a href="../Assessment/fake_database.db"><code>Assessment/fake_database.db</code></a>.</p>
+<p><strong>Design intent:</strong> scale to 1M+ documents without context explosion by
+generating Python on demand and running it in a sandbox subprocess that calls
+the MCP tools directly, streaming <code>##PROGRESS##</code> markers back to the user via
+Server-Sent Events. The planner LLM never sees more than O(1) document IDs.</p>
+<p><strong>LLM call count is fixed at 4</strong> (interrogator + planner + code-gen +
+synthesizer) regardless of corpus size, that's the core scalability
+invariant. For a 1M-doc translation the agent makes ~104 MCP calls
+(100 paginated metadata fetches + 4 bulk-translate calls); the MCP server
+does the 1M actual translations internally with <code>Semaphore(200)</code>.</p>
+<p><strong>Survives process death.</strong> Every <code>##CHECKPOINT##</code> marker is persisted to
+SQLite immediately. On startup the orchestrator's lifespan re-executes any
+session left in <code>EXECUTING</code> from its last checkpoint, generated code reads
+<code>__resume_from__</code> and skips already-processed pages.</p>
+<p>Full design rationale, architecture diagrams, and the assessment aligned
+report are in <a href="./ARCHITECTURE_VIEW.html">ARCHITECTURE_VIEW.md</a>.
+The browser UI is branded <strong>Argos</strong> (the many-eyed multi-agent watcher);
+internals and infra stay named <code>hermes_*</code>.</p>
+<hr>
+<h2 id="quick-start">Quick start</h2>
+<p>After any of the three paths below the UI is at <strong><a href="http://localhost:8080/ui">http://localhost:8080/ui</a></strong>.</p>
+<p>You need an Anthropic API key (<code>sk-ant-…</code>), every path uses it the same way.</p>
+<h3 id="option-1-docker-compose-recommended">Option 1, Docker Compose (recommended)</h3>
+<p>The cleanest path. One command brings up the MCP server + agent API + UI in
+their own containers with the right ports, mounts, and durable state volume.
+Nothing to install on your machine besides Docker.</p>
+<p><strong>Prereqs:</strong> Docker Desktop (Windows/Mac) or <code>docker</code> + <code>docker compose</code> (Linux).</p>
+<pre><code class="language-bash">cd hermes_framework
+cp .env.example .env            # then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+
+docker compose up --build       # first run takes 1-2 min to build images
+</code></pre>
+<p>Open <a href="http://localhost:8080/ui">http://localhost:8080/ui</a>, click a suggested query, watch it run.</p>
+<p><strong>When you're done:</strong> to stop AND wipe persisted session state (recommended
+between demos so old sessions don't auto-resume), use the <code>-v</code> flag:</p>
+<pre><code class="language-bash">docker compose down -v          # the -v removes the hermes-state volume
+</code></pre>
+<p>Plain <code>docker compose down</code> keeps the state volume, your previous sessions
+will be resumed on the next startup. That's a feature (durability across
+restarts), but a footgun if you want a clean slate.</p>
+<h3 id="option-2-local-python-no-docker">Option 2, Local Python (no Docker)</h3>
+<p>Faster iteration when you're editing code. Two terminals required: one for
+the MCP server, one for the agent API.</p>
+<p><strong>Prereqs:</strong> Python 3.11+ (<code>python --version</code> to check).</p>
+<pre><code class="language-bash">cd hermes_framework                                # ← critical, see note below
+python -m venv .venv
+.venv\Scripts\activate                             # Windows
+# source .venv/bin/activate                        # macOS/Linux
+pip install -e &quot;.[dev]&quot;
+
+cp .env.example .env                               # then edit .env, set ANTHROPIC_API_KEY=...
+</code></pre>
+<p>Then in <strong>Terminal A</strong>:</p>
+<pre><code class="language-bash">cd hermes_framework
+python -m app.mcp_server
+</code></pre>
+<p>And in <strong>Terminal B</strong>:</p>
+<pre><code class="language-bash">cd hermes_framework
+python -m app.main
+</code></pre>
+<p>Open <a href="http://localhost:8080/ui">http://localhost:8080/ui</a>.</p>
+<blockquote>
+<p><strong>The <code>cd hermes_framework</code> matters in BOTH terminals.</strong> <code>.env</code> is loaded
+relative to your current directory. Running from one level up causes:
+<code>TypeError: Could not resolve authentication method. Expected either
+api_key or auth_token to be set.</code> That's not a code bug, it just means
+the <code>.env</code> wasn't found.</p>
+</blockquote>
+<h3 id="option-3-run-tests-only">Option 3, Run tests only</h3>
+<p>If you just want to verify the codebase compiles and the load-bearing logic
+works without spinning up the stack or burning API tokens:</p>
+<pre><code class="language-bash">cd hermes_framework
+pip install -e &quot;.[dev]&quot;
+python -m pytest -q              # 37 tests, ~20s, zero LLM calls
+</code></pre>
+<p>The suite covers sandbox AST policy, <code>validate_and_repair</code> auto-repair, DAG
+scheduler topology, SSE replay, marker parsing, and the resume-on-startup
+plumbing. LLM-dependent paths are exercised via the live demo, not unit tests.</p>
+<hr>
+<h2 id="api-surface">API surface</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/v1/sessions</code></td>
+<td>Create session. Body: <code>{container_id?, webhook_url?}</code>. Returns <code>{session_id, status}</code>.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/v1/sessions/{id}/messages</code></td>
+<td>Send the user message. Body: <code>{message, container_id?}</code>. Returns 202.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/v1/sessions/{id}/events?cursor=N</code></td>
+<td>SSE stream of agent events. Replayable from any cursor.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/v1/sessions/{id}/status</code></td>
+<td>Polling snapshot, status, task counts, progress %, latest event cursor. Cheap; use when SSE can't be held open.</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/v1/sessions/{id}/answer</code></td>
+<td>Answer a Plan Mode clarifying question. Body: <code>{question_id, answer}</code>.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/v1/sessions/{id}</code></td>
+<td>Session snapshot + question list.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/artifacts/{session_id}/{file}</code></td>
+<td>Static-serves task artifacts (HTML dashboards, JSON spills). Synthesizer emits absolute URLs to this path.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/ui</code></td>
+<td>Single-page HTML viewer, dark-first, markdown-rendered answers, polling fallback.</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/healthz</code></td>
+<td>Liveness probe.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Optional <code>webhook_url</code></strong> posted on session creation: receives the final
+<code>session.completed</code> / <code>session.error</code> payload via HTTP POST when the
+session terminates. Fire-and-forget with retry, max 3 attempts. Useful for
+multi-hour jobs that outlive the user's SSE connection.</p>
+<h3 id="minimal-curl-example">Minimal curl example</h3>
+<pre><code class="language-bash"># 1) create session
+SID=$(curl -s -X POST localhost:8080/v1/sessions \
+        -H 'content-type: application/json' \
+        -d '{&quot;container_id&quot;:&quot;container_001&quot;}' \
+        | python -c 'import sys,json; print(json.load(sys.stdin)[&quot;session_id&quot;])')
+
+# 2) open the SSE stream (Terminal A, leave running)
+curl -N localhost:8080/v1/sessions/$SID/events
+
+# 3) post the message (Terminal B)
+curl -X POST localhost:8080/v1/sessions/$SID/messages \
+     -H 'content-type: application/json' \
+     -d '{&quot;message&quot;:&quot;Translate all financial documents to German&quot;}'
+</code></pre>
+<hr>
+<h2 id="demo-queries">Demo queries</h2>
+<p>The system handles the 6 prompts from the assessment PDF:</p>
+<table>
+<thead>
+<tr>
+<th>Query</th>
+<th>Expected behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>"Translate all my financial documents to German"</td>
+<td><code>CODE_TRANSFORM</code> plan; sandbox iterates docs in 200-doc chunks across all containers in parallel; <code>##PROGRESS##</code> streams per chunk</td>
+</tr>
+<tr>
+<td>"What are my payment terms?"</td>
+<td>Single <code>RAG_QUERY</code> via <code>aiagent</code> MCP tool</td>
+</tr>
+<tr>
+<td>"Create an HTML dashboard from all my documents"</td>
+<td>Triggers Plan Mode (scope/charts/categories), then <code>SUBAGENT</code> writes HTML artifact</td>
+</tr>
+<tr>
+<td>"Convert all my PDF documents to DOCX"</td>
+<td>Planner surfaces that the tool surface doesn't support format conversion</td>
+</tr>
+<tr>
+<td>"Find all documents with high-risk indemnification clauses"</td>
+<td><code>CODE_TRANSFORM</code> filters by keyword/classification fields</td>
+</tr>
+<tr>
+<td>"Summary report of all legal agreements with high PII exposure"</td>
+<td><code>CODE_TRANSFORM</code> filters by <code>piiCount</code>, then <code>SYNTHESIZE</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="execution-flow">Execution flow</h2>
+<p>For every user message:</p>
+<pre><code>POST /messages
+    │
+    ▼
+Interrogator (1 LLM call)
+    → auto-resolves container OR asks clarifying question(s)
+    → if AWAITING_ANSWER: pause until POST /answer
+    │
+    ▼
+Planner (1 LLM call, streaming with adaptive thinking)
+    → emits DAG plan via emit_plan tool
+    → validate_and_repair() auto-rewrites &gt;20-doc TOOL_CALLs → CODE_TRANSFORM
+    │
+    ▼
+Scheduler (topo-wave, up to 8 concurrent tasks)
+    │
+    ├── TOOL_CALL / RAG_QUERY  → ToolWorker (1 direct MCP call)
+    ├── CODE_TRANSFORM / BULK  → CodeWorker
+    │       │
+    │       ├── mcp_list_tools() → build dynamic system prompt
+    │       ├── LLM call → generate Python script
+    │       └── subprocess sandbox → script calls MCP tools, streams ##PROGRESS##
+    └── SUBAGENT / SYNTHESIZE  → SubAgentWorker (child Claude session)
+    │
+    ▼
+_synthesize_final_answer() (1 LLM call)
+    → compose user-facing answer from all task outputs
+</code></pre>
+<p>Minimum LLM calls for a simple query: <strong>3</strong> (Interrogator + Planner + Synthesizer).
+Each <code>CODE_TRANSFORM</code> task adds 1 more. MCP tool calls happen inside the sandbox
+subprocess, the planner LLM is never in the per-document loop.</p>
+<hr>
+<h2 id="observability">Observability</h2>
+<ul>
+<li><strong>Live UI</strong>: open <code>/ui</code>, every <code>task.started</code> / <code>task.mcp_call</code> /
+  <code>task.code_progress</code> / <code>task.completed</code> / <code>plan.repaired</code> event shows up in
+  real time. Full event log at the bottom of the page.</li>
+<li><strong>Logs</strong>: structured via loguru on stdout. Includes <code>cache_read_input_tokens</code>
+  / <code>cache_creation_input_tokens</code> for the planner so you can see prompt-cache
+  hit rate.</li>
+<li><strong>Event log</strong>: every event is persisted to SQLite. Late SSE subscribers
+  pass <code>?cursor=N</code> to replay from any point, useful for reconnects.</li>
+<li><strong>Checkpoints</strong>: <code>##CHECKPOINT##</code> markers from sandbox scripts are persisted
+  to <code>task.checkpoint</code> and passed to the replanner on failure so bulk jobs
+  can resume from their last known offset.</li>
+</ul>
+<hr>
+<h2 id="layout">Layout</h2>
+<pre><code>hermes_framework/
+├── README.md, ARCHITECTURE_VIEW.md
+├── pyproject.toml
+├── docker-compose.yml, Dockerfile.api, Dockerfile.mcp
+├── .env.example
+├── app/
+│   ├── api/
+│   │   ├── server.py         # FastAPI routes + SSE streaming
+│   │   └── sse.py            # event bus, encoder, SSE replay
+│   ├── engine/
+│   │   ├── orchestrator.py   # top-level loop + _synthesize_final_answer()
+│   │   ├── interrogator.py   # Plan Mode — ask_clarifications or proceed
+│   │   ├── planner.py        # adaptive thinking + native tool_use + validate_and_repair()
+│   │   ├── router.py         # task_kind → worker (stateless)
+│   │   ├── scheduler.py      # topo-wave DAG executor, retries, semaphore(8)
+│   │   ├── containers.py     # discover available container IDs
+│   │   └── prompts.py        # dynamic tool signatures + static strategy prompts
+│   ├── workers/
+│   │   ├── tool_worker.py    # one direct MCP call
+│   │   ├── code_worker.py    # generates Python, runs in sandbox subprocess
+│   │   └── subagent_worker.py # child Claude session (HTML, synthesis tasks)
+│   ├── sandbox/
+│   │   ├── runner.py         # subprocess entrypoint + marker helpers
+│   │   ├── policy.py         # AST allowlist + filtered_builtins()
+│   │   └── mcp_shim.py       # synthetic `mcp` module injected into sandbox
+│   ├── mcp_client/client.py  # streamable-HTTP MCP client
+│   ├── mcp_server.py         # entrypoint that runs Sample_FastMCP over HTTP
+│   ├── state/
+│   │   ├── store.py          # SQLite (WAL) — sessions, plans, tasks, events
+│   │   ├── checkpoint.py     # artifact spill logic (&gt;8KB → artifacts/)
+│   │   └── schema.sql        # DB schema
+│   ├── llm/anthropic_client.py
+│   ├── ui/                   # static HTML + JS SSE viewer
+│   ├── models.py             # Pydantic shapes (Task, Plan, Session, Event, …)
+│   ├── config.py             # pydantic-settings — all config from .env
+│   └── main.py               # uvicorn entrypoint
+├── scripts/
+│   ├── run_mcp.sh, run_api.sh
+│   └── demo_queries.sh
+└── tests/
+    ├── test_sandbox_policy.py
+    ├── test_validator.py          # validate_and_repair() unit tests
+    ├── test_code_worker_markers.py
+    ├── test_scheduler_dag.py
+    ├── test_sse_replay.py
+    ├── test_planner_schema.py
+    ├── test_sandbox_runner.py
+    └── test_tool_worker.py
+</code></pre>
+<hr>
+<h2 id="notable-design-choices">Notable design choices</h2>
+<ol>
+<li>
+<p><strong>The planner never sees more than O(1) document IDs.</strong> Anything iterative
+   becomes a <code>CODE_TRANSFORM</code> task whose generated Python runs in a subprocess
+   sandbox and calls MCP tools directly. Progress markers stream back via
+   stdout → SSE. The LLM context stays tiny whether the corpus is 9K, 36K, or
+   1M documents.</p>
+</li>
+<li>
+<p><strong>Belt-and-suspenders on the 20-doc rule.</strong> The planner prompt forbids
+   <code>TOOL_CALL</code> with &gt;20 doc IDs, but Sonnet 4.6 violates it ~3-5% of the time
+   on edge cases. <code>validate_and_repair()</code> (in <code>planner.py</code>) catches and
+   auto-rewrites these as <code>CODE_TRANSFORM</code>, emitting a <code>plan.repaired</code> SSE
+   event. Prompt discipline alone is not sufficient.</p>
+</li>
+<li>
+<p><strong>Dynamic tool signatures, not hardcoded.</strong> <code>build_code_gen_system(live_tools)</code>
+   in <code>prompts.py</code> builds the code-gen system prompt at runtime from
+   <code>mcp_list_tools()</code> output. If a tool's input schema changes on the MCP
+   server, the next code generation automatically reflects it.</p>
+</li>
+<li>
+<p><strong>Native tool use + adaptive thinking.</strong> <code>thinking={"type": "adaptive"}</code> with
+   <code>tool_choice={"type": "auto"}</code> for the planner (forced tool use is
+   incompatible with adaptive thinking). Workers use plain Sonnet without
+   extended thinking for latency.</p>
+</li>
+<li>
+<p><strong>Prompt caching.</strong> Planner system prompt + <code>emit_plan</code> schema are stable
+   bytes; <code>cache_control={"type": "ephemeral"}</code> amortises the prefix cost
+   across repeat calls in the same process.</p>
+</li>
+<li>
+<p><strong>Two layers of sandbox defense.</strong> AST import allowlist (script side) +
+   filtered builtins dict (runtime side). <code>python -I</code> and <code>RLIMIT_AS</code> were
+   both removed, the former broke module loading on Python 3.11+, the latter
+   killed the process at startup due to virtual address space reservation.
+   The heartbeat watchdog (below) is the liveness backstop.</p>
+</li>
+<li>
+<p><strong>Heartbeat-based liveness, not a hard timeout.</strong> For bulk tasks
+   (<code>CODE_TRANSFORM</code> / <code>BULK_TOOL_CALL</code>) the sandbox is killed only after
+   <code>sandbox_heartbeat_timeout_seconds</code> (default 300 s) of stdout silence,
+   not after a fixed wall-clock duration. A real 17-hour translation runs
+   to completion as long as <code>##PROGRESS##</code> or <code>##CHECKPOINT##</code> keeps firing;
+   a genuinely hung script dies in 5 minutes. The 24-hour
+   <code>sandbox_bulk_timeout_seconds</code> is just a backstop.</p>
+</li>
+<li>
+<p><strong>DAG scheduler with bounded replan + INTERRUPTED status.</strong> Tasks run in
+   topological waves with concurrency cap of 8. Failed tasks retry with
+   exponential backoff. After terminal failure, the orchestrator replans
+   once (<code>MAX_REPLANS = 1</code>) with checkpoint context. A new <code>INTERRUPTED</code>
+   status marks tasks that were RUNNING when the process died; the scheduler
+   promotes them back to PENDING (preserving checkpoint) on resume.</p>
+</li>
+<li>
+<p><strong>Durable execution across process restarts.</strong> Every <code>##CHECKPOINT##</code>
+   marker is persisted to <code>tasks.checkpoint_json</code> immediately (not just
+   at task end). On startup, the FastAPI lifespan calls
+   <code>resume_interrupted_sessions()</code>, any session left in EXECUTING is
+   re-executed from its last checkpoint, with full upstream artifact data
+   reloaded so downstream tasks see real data not just an inline preview.</p>
+</li>
+<li>
+<p><strong>Hybrid streaming UX.</strong> Three channels for the same terminal payload:
+    SSE for live UIs, <code>GET /v1/sessions/{id}/status</code> for polling clients
+    that can't hold connections open, and optional <code>webhook_url</code> for
+    fire-on-done. Pick what fits the consumer's latency / connection model.</p>
+</li>
+<li>
+<p><strong>Clickable absolute artifact URLs.</strong> The synthesizer prompt is strict
+    about markdown style (no emojis, clean tables, no backticks around URLs).
+    A post-processor (<code>_absolutize_artifact_paths</code>) rewrites any bare
+    <code>artifacts/...</code> paths to full <code>http://host/artifacts/...</code> URLs. The
+    <code>/artifacts/*</code> route static-serves the directory so users click straight
+    to the report HTML.</p>
+</li>
+<li>
+<p><strong>Resumable &amp; replayable.</strong> Every event appended to SQLite (WAL); SSE
+    clients reconnect via <code>?cursor=N</code>. Plans, tasks, questions, and
+    checkpoints are all persisted.</p>
+</li>
+</ol>
+<hr>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>The MCP server runs <code>Sample_FastMCP.py</code> as-is, the bulk-translate tool has
+  a hardcoded ~3% simulated failure rate. That's expected; failures are reported
+  in the task output with full document ID lists.</li>
+<li>The sandbox AST policy is defense-in-depth for a trusted-but-confused LLM,
+  not a hardened security boundary. For production, replace with E2B or
+  Firecracker.</li>
+<li>Single-tenant demo, one Anthropic API key, no per-request auth.</li>
+<li>Retrieval is BM25 (FTS5 <code>search_documents</code>), not vector-based. There is
+  no embedding model, no vector store. For semantic recall, add a
+  <code>search_documents_semantic</code> MCP tool backed by PgVector or Milvus.</li>
+<li>Resume-on-startup recovers a single-process orchestrator from uvicorn
+  restart. For multi-process / multi-host orchestration replace the
+  in-process loop with Temporal or Argo Workflows; the state model (Store)
+  is the only seam that needs to change.</li>
+<li>MCP server is single-replica in the demo compose. <code>Sample_FastMCP.py</code>
+  reads SQLite read-only so N replicas behind nginx round-robin work
+  without code changes, that's a deployment swap, not a code one.</li>
+<li>Each <code>POST /messages</code> starts a fresh orchestrator run, no multi-turn
+  conversation history across messages within a session.</li>
+<li>Windows: <code>resource.setrlimit</code> unavailable; heartbeat watchdog is the
+  enforced liveness check.</li>
+</ul>
+  </main>
+
+</body>
+</html>
